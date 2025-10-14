@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSignTypedData, useChainId } from 'wagmi';
 import { CONTRACT_ADDRESSES, TokenBank_ABI, MyERC20_ABI } from '../../utils/contracts';
 import { formatUnits, parseUnits, Address } from 'viem';
@@ -19,10 +19,18 @@ export default function BankPage() {
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [permitAmount, setPermitAmount] = useState('');
+  const [showNotification, setShowNotification] = useState(false);
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
   const { signTypedDataAsync } = useSignTypedData();
+
+  // Show notification when transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed) {
+      setShowNotification(true);
+    }
+  }, [isConfirmed]);
 
   // Read wallet token balance
   const { data: walletBalance } = useReadContract({
@@ -174,25 +182,25 @@ export default function BankPage() {
 
   return (
     <div className="px-4 py-8">
-      {/* Floating Transaction Status - Fixed at top */}
-      {isConfirmed && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 animate-fadeIn">
-          <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 shadow-2xl max-w-2xl">
-            <div className="flex items-center">
-              <svg className="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      {/* Floating Transaction Status - Fixed at top right */}
+      {showNotification && isConfirmed && (
+        <div className="fixed top-20 right-8 z-50 animate-fadeIn">
+          <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 shadow-2xl w-96">
+            <div className="flex items-start">
+              <svg className="w-6 h-6 text-green-600 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <div className="flex-1">
-                <p className="text-green-800 font-bold text-lg">✅ Transaction Confirmed!</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-green-800 font-bold text-base">✅ Transaction Confirmed!</p>
                 {hash && (
-                  <p className="text-sm text-green-600 mt-1 break-all font-mono">
+                  <p className="text-xs text-green-600 mt-1 break-all font-mono">
                     Hash: {hash.slice(0, 10)}...{hash.slice(-8)}
                   </p>
                 )}
               </div>
               <button
-                onClick={() => window.location.reload()}
-                className="ml-4 text-green-600 hover:text-green-800 font-bold"
+                onClick={() => setShowNotification(false)}
+                className="ml-3 text-green-600 hover:text-green-800 font-bold flex-shrink-0"
                 title="Close"
               >
                 ✕
