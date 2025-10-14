@@ -25,15 +25,6 @@ export default function NFTPage() {
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
-  // Refresh data when mint transaction is confirmed
-  useEffect(() => {
-    if (isConfirmed) {
-      // Refresh total supply and balance
-      refetchTotalSupply();
-      refetchBalance();
-    }
-  }, [isConfirmed, refetchTotalSupply, refetchBalance]);
-
   // Read total supply
   const { data: totalSupply, refetch: refetchTotalSupply } = useReadContract({
     address: CONTRACT_ADDRESSES.MyNFT as `0x${string}`,
@@ -51,6 +42,15 @@ export default function NFTPage() {
       enabled: !!address,
     },
   });
+
+  // Refresh data when mint transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed) {
+      // Refresh total supply and balance
+      refetchTotalSupply();
+      refetchBalance();
+    }
+  }, [isConfirmed, refetchTotalSupply, refetchBalance]);
 
   // Read token URI
   const { data: tokenURIData } = useReadContract({
