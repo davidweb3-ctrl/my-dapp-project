@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { CONTRACT_ADDRESSES, MyERC20_ABI } from '../../utils/contracts';
-import { formatUnits, parseUnits } from 'viem';
+import { formatUnits, isAddress, parseUnits } from 'viem';
 import TokenBalance from '../../components/TokenBalance';
 
 /**
@@ -20,6 +20,8 @@ export default function TokenPage() {
   const [approveSpender, setApproveSpender] = useState('');
   const [approveAmount, setApproveAmount] = useState('');
   const [lastAction, setLastAction] = useState<'transfer' | 'approve' | null>(null);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [approveError, setApproveError] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
@@ -38,7 +40,30 @@ export default function TokenPage() {
   // Handle transfer
   const handleTransfer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!transferTo || !transferAmount) return;
+    setTransferError(null);
+
+    if (!transferTo || !transferAmount) {
+      setTransferError('Please enter both recipient address and amount.');
+      return;
+    }
+
+    if (!isAddress(transferTo)) {
+      setTransferError('Please enter a valid recipient address.');
+      return;
+    }
+
+    let amount: bigint;
+    try {
+      amount = parseUnits(transferAmount, 18);
+    } catch (err) {
+      setTransferError('Please enter a valid transfer amount.');
+      return;
+    }
+
+    if (amount <= 0n) {
+      setTransferError('Amount must be greater than 0.');
+      return;
+    }
 
     try {
       setLastAction('transfer');
@@ -46,17 +71,41 @@ export default function TokenPage() {
         address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
         abi: MyERC20_ABI,
         functionName: 'transfer',
-        args: [transferTo as `0x${string}`, parseUnits(transferAmount, 18)],
+        args: [transferTo as `0x${string}`, amount],
       });
     } catch (error) {
       console.error('Transfer error:', error);
+      setTransferError(error instanceof Error ? error.message : 'Transfer failed. Please try again.');
     }
   };
 
   // Handle approve
   const handleApprove = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!approveSpender || !approveAmount) return;
+    setApproveError(null);
+
+    if (!approveSpender || !approveAmount) {
+      setApproveError('Please enter both spender address and amount.');
+      return;
+    }
+
+    if (!isAddress(approveSpender)) {
+      setApproveError('Please enter a valid spender address.');
+      return;
+    }
+
+    let amount: bigint;
+    try {
+      amount = parseUnits(approveAmount, 18);
+    } catch (err) {
+      setApproveError('Please enter a valid approval amount.');
+      return;
+    }
+
+    if (amount <= 0n) {
+      setApproveError('Amount must be greater than 0.');
+      return;
+    }
 
     try {
       setLastAction('approve');
@@ -64,10 +113,11 @@ export default function TokenPage() {
         address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
         abi: MyERC20_ABI,
         functionName: 'approve',
-        args: [approveSpender as `0x${string}`, parseUnits(approveAmount, 18)],
+        args: [approveSpender as `0x${string}`, amount],
       });
     } catch (error) {
       console.error('Approve error:', error);
+      setApproveError(error instanceof Error ? error.message : 'Approval failed. Please try again.');
     }
   };
 
@@ -101,7 +151,10 @@ export default function TokenPage() {
               <input
                 type="text"
                 value={transferTo}
-                onChange={(e) => setTransferTo(e.target.value)}
+                onChange={(e) => {
+                  setTransferTo(e.target.value);
+                  if (transferError) setTransferError(null);
+                }}
                 placeholder="0x..."
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
@@ -113,7 +166,10 @@ export default function TokenPage() {
               <input
                 type="number"
                 value={transferAmount}
-                onChange={(e) => setTransferAmount(e.target.value)}
+                onChange={(e) => {
+                  setTransferAmount(e.target.value);
+                  if (transferError) setTransferError(null);
+                }}
                 placeholder="0.0"
                 step="0.000000000000000001"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -127,6 +183,11 @@ export default function TokenPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Transfer'}
             </button>
           </form>
+          {transferError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700">{transferError}</p>
+            </div>
+          )}
           {isConfirmed && lastAction === 'transfer' && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-green-800 font-bold">✅ Transfer Confirmed!</p>
@@ -150,7 +211,10 @@ export default function TokenPage() {
               <input
                 type="text"
                 value={approveSpender}
-                onChange={(e) => setApproveSpender(e.target.value)}
+                onChange={(e) => {
+                  setApproveSpender(e.target.value);
+                  if (approveError) setApproveError(null);
+                }}
                 placeholder="0x..."
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
@@ -162,7 +226,10 @@ export default function TokenPage() {
               <input
                 type="number"
                 value={approveAmount}
-                onChange={(e) => setApproveAmount(e.target.value)}
+                onChange={(e) => {
+                  setApproveAmount(e.target.value);
+                  if (approveError) setApproveError(null);
+                }}
                 placeholder="0.0"
                 step="0.000000000000000001"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
@@ -176,6 +243,11 @@ export default function TokenPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Approve'}
             </button>
           </form>
+          {approveError && (
+            <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-sm text-red-700">{approveError}</p>
+            </div>
+          )}
           {isConfirmed && lastAction === 'approve' && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-green-800 font-bold">✅ Approval Confirmed!</p>
