@@ -110,15 +110,18 @@ export default function MarketPage() {
 
   // Generate whitelist signature (Market Owner only)
   const handleGenerateSignature = async () => {
-    if (!isMarketOwner || !whitelistTokenId || !listingInfo) {
-      alert('You must be the market owner and have a valid listing selected');
+    if (!isMarketOwner || !whitelistTokenId) {
+      alert('You must be the market owner and enter a valid token ID');
       return;
     }
 
     try {
       const tokenId = BigInt(whitelistTokenId);
       const buyer = address; // For demo, owner can generate signature for themselves
-      const price = listingInfo.price;
+      
+      // For demo purposes, use a default price if no listing info is available
+      // In a real scenario, you might want to fetch the actual listing price
+      const price = listingInfo?.price || BigInt(1000 * 10**18); // Default 1000 tokens
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
 
       // Sign EIP-712 typed data
@@ -282,6 +285,12 @@ export default function MarketPage() {
             <p className="text-sm text-gray-600 mb-4">
               Generate EIP-712 signatures to whitelist specific buyers for NFT purchases.
             </p>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-blue-800">
+                <strong>💡 How to use:</strong> Enter any Token ID (even if not listed) to generate a whitelist signature. 
+                The signature will authorize the specified buyer to purchase that NFT.
+              </p>
+            </div>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -291,10 +300,13 @@ export default function MarketPage() {
                   type="number"
                   value={whitelistTokenId}
                   onChange={(e) => setWhitelistTokenId(e.target.value)}
-                  placeholder="0"
+                  placeholder="Enter Token ID (e.g., 1, 2, 3...)"
                   min="0"
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  You can whitelist any Token ID, even if it's not currently listed for sale.
+                </p>
               </div>
               <button
                 onClick={handleGenerateSignature}
