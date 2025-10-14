@@ -269,6 +269,7 @@ export default function MarketPage() {
           )}
         </div>
 
+
         {/* Whitelist Signature Generator (Owner Only) */}
         {isMarketOwner && (
           <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-400 rounded-lg p-6 mb-6">
