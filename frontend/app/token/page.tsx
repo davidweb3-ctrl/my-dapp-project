@@ -19,6 +19,7 @@ export default function TokenPage() {
   const [transferAmount, setTransferAmount] = useState('');
   const [approveSpender, setApproveSpender] = useState('');
   const [approveAmount, setApproveAmount] = useState('');
+  const [lastAction, setLastAction] = useState<'transfer' | 'approve' | null>(null);
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
@@ -40,6 +41,7 @@ export default function TokenPage() {
     if (!transferTo || !transferAmount) return;
 
     try {
+      setLastAction('transfer');
       writeContract({
         address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
         abi: MyERC20_ABI,
@@ -57,6 +59,7 @@ export default function TokenPage() {
     if (!approveSpender || !approveAmount) return;
 
     try {
+      setLastAction('approve');
       writeContract({
         address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
         abi: MyERC20_ABI,
@@ -124,7 +127,7 @@ export default function TokenPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Transfer'}
             </button>
           </form>
-          {isConfirmed && (
+          {isConfirmed && lastAction === 'transfer' && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-green-800">Transaction confirmed!</p>
               {hash && (
@@ -173,6 +176,16 @@ export default function TokenPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Approve'}
             </button>
           </form>
+          {isConfirmed && lastAction === 'approve' && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-800">Transaction confirmed!</p>
+              {hash && (
+                <p className="text-sm text-green-600 mt-1 break-all">
+                  Hash: {hash}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}
