@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /**
  * @title NFTMarket
@@ -15,7 +16,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
  * - Buy NFTs with ERC20 tokens
  * - Whitelist-based purchasing with EIP-712 signature verification
  */
-contract NFTMarket is EIP712, Ownable {
+contract NFTMarket is EIP712, Ownable, ERC165 {
     using ECDSA for bytes32;
     
     // The ERC20 token used for payments
@@ -242,6 +243,15 @@ contract NFTMarket is EIP712, Ownable {
             )
         );
         return _hashTypedDataV4(structHash);
+    }
+    
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     * @param interfaceId The interface identifier, as specified in ERC-165
+     * @return true if this contract implements the interface defined by interfaceId
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 }
 

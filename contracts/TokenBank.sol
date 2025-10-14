@@ -3,13 +3,14 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /**
  * @title TokenBank
  * @dev A simple bank contract that allows users to deposit and withdraw MyERC20 tokens
  * Supports EIP-2612 permit functionality for gasless approvals
  */
-contract TokenBank {
+contract TokenBank is ERC165 {
     // The ERC20 token that this bank accepts
     IERC20 public immutable token;
     
@@ -135,6 +136,15 @@ contract TokenBank {
      */
     function totalDeposits() external view returns (uint256) {
         return token.balanceOf(address(this));
+    }
+    
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     * @param interfaceId The interface identifier, as specified in ERC-165
+     * @return true if this contract implements the interface defined by interfaceId
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return super.supportsInterface(interfaceId);
     }
 }
 
