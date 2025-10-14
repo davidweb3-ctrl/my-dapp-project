@@ -1,9 +1,9 @@
 // Contract addresses - Deployed on Anvil (Localhost)
 export const CONTRACT_ADDRESSES = {
-  MyERC20: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-  TokenBank: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  MyNFT: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-  NFTMarket: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  MyERC20: '0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE',
+  TokenBank: '0x68B1D87F95878fE05B998F19b66F4baba5De1aed',
+  MyNFT: '0x3Aa5ebB10DC797CAC828524e59A333d0A371443c',
+  NFTMarket: '0xc6e7DF5E7b4f2A278906862b61205850344D4e7d',
 } as const;
 
 // MyERC20 ABI
@@ -103,6 +103,20 @@ export const MyERC20_ABI = [
     "name": "permit",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "bytes4", "name": "interfaceId", "type": "bytes4"}],
+    "name": "supportsInterface",
+    "outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}],
+    "name": "nonces",
+    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+    "stateMutability": "view",
     "type": "function"
   }
 ] as const;

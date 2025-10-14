@@ -3,16 +3,18 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
+import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /**
  * @title MyERC20
- * @dev Implementation of ERC20 token with EIP-2612 permit functionality
+ * @dev Implementation of ERC20 token with EIP-2612 permit functionality and ERC165 support
  * - Name: MyERC20
  * - Symbol: MERC20
  * - Decimals: 18
  * - Total Supply: 100,000,000 tokens
+ * - Supports ERC165 interface detection
  */
-contract MyERC20 is ERC20, ERC20Permit {
+contract MyERC20 is ERC20, ERC20Permit, ERC165 {
     /**
      * @dev Constructor that mints the entire supply to the deployer
      */
@@ -111,6 +113,18 @@ contract MyERC20 is ERC20, ERC20Permit {
      */
     function totalSupply() public view override returns (uint256) {
         return super.totalSupply();
+    }
+
+    /**
+     * @dev See {IERC165-supportsInterface}.
+     * @param interfaceId The interface identifier to check
+     * @return bool True if the contract implements the interface
+     */
+    function supportsInterface(bytes4 interfaceId) public view virtual override returns (bool) {
+        return
+            interfaceId == type(IERC20).interfaceId ||
+            interfaceId == type(IERC20Metadata).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 }
 
