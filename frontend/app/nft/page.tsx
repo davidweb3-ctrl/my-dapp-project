@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { CONTRACT_ADDRESSES, MyNFT_ABI } from '../../utils/contracts';
 
@@ -21,9 +21,17 @@ export default function NFTPage() {
   const [tokenURI, setTokenURI] = useState('');
   const [selectedTokenId, setSelectedTokenId] = useState('');
   const [nftList, setNftList] = useState<NFT[]>([]);
+  const [showNotification, setShowNotification] = useState(false);
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+
+  // Show notification when transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed) {
+      setShowNotification(true);
+    }
+  }, [isConfirmed]);
 
   // Read total supply
   const { data: totalSupply } = useReadContract({
@@ -90,6 +98,34 @@ export default function NFTPage() {
 
   return (
     <div className="px-4 py-8">
+      {/* Floating Transaction Status - Fixed at top right */}
+      {showNotification && isConfirmed && (
+        <div className="fixed top-20 right-8 z-50 animate-fadeIn">
+          <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 shadow-2xl w-96">
+            <div className="flex items-start">
+              <svg className="w-6 h-6 text-green-600 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="text-green-800 font-bold text-base">✅ NFT Minted Successfully!</p>
+                {hash && (
+                  <p className="text-xs text-green-600 mt-1 break-all font-mono">
+                    Hash: {hash.slice(0, 10)}...{hash.slice(-8)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setShowNotification(false)}
+                className="ml-3 text-green-600 hover:text-green-800 font-bold flex-shrink-0"
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">MyNFT Collection</h1>
 
@@ -145,16 +181,6 @@ export default function NFTPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Minting...' : 'Mint NFT'}
             </button>
           </form>
-          {isConfirmed && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800">NFT minted successfully!</p>
-              {hash && (
-                <p className="text-sm text-green-600 mt-1 break-all">
-                  Hash: {hash}
-                </p>
-              )}
-            </div>
-          )}
         </div>
 
         {/* View Token URI */}
