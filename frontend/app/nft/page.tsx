@@ -25,15 +25,24 @@ export default function NFTPage() {
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
+  // Refresh data when mint transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed) {
+      // Refresh total supply and balance
+      refetchTotalSupply();
+      refetchBalance();
+    }
+  }, [isConfirmed, refetchTotalSupply, refetchBalance]);
+
   // Read total supply
-  const { data: totalSupply } = useReadContract({
+  const { data: totalSupply, refetch: refetchTotalSupply } = useReadContract({
     address: CONTRACT_ADDRESSES.MyNFT as `0x${string}`,
     abi: MyNFT_ABI,
     functionName: 'totalSupply',
   });
 
   // Read user's NFT balance
-  const { data: balance } = useReadContract({
+  const { data: balance, refetch: refetchBalance } = useReadContract({
     address: CONTRACT_ADDRESSES.MyNFT as `0x${string}`,
     abi: MyNFT_ABI,
     functionName: 'balanceOf',
@@ -91,7 +100,18 @@ export default function NFTPage() {
   return (
     <div className="px-4 py-8">
       <div className="max-w-4xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">MyNFT Collection</h1>
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">MyNFT Collection</h1>
+          <button
+            onClick={() => {
+              refetchTotalSupply();
+              refetchBalance();
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            🔄 Refresh Data
+          </button>
+        </div>
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
