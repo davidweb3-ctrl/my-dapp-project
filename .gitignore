@@ -1,0 +1,45 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+# Dotenv file
+.env
+.env.local
+
+# Node modules
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build artifacts
+dist/
+build/
+*.tsbuildinfo
+
+# Next.js
+.next/
+next-env.d.ts
+
+# Testing
+coverage/
+*.lcov
+
+# Misc
+.cache/
+temp/
+tmp/
+
