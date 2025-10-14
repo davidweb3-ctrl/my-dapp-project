@@ -253,6 +253,34 @@ export default function MarketPage() {
 
   return (
     <div className="px-4 py-8">
+      {/* Floating Transaction Status - Fixed at top */}
+      {isConfirmed && (
+        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 animate-fadeIn">
+          <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 shadow-2xl max-w-2xl">
+            <div className="flex items-center">
+              <svg className="w-6 h-6 text-green-600 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1">
+                <p className="text-green-800 font-bold text-lg">✅ Transaction Confirmed!</p>
+                {hash && (
+                  <p className="text-sm text-green-600 mt-1 break-all font-mono">
+                    Hash: {hash.slice(0, 10)}...{hash.slice(-8)}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => window.location.reload()}
+                className="ml-4 text-green-600 hover:text-green-800 font-bold text-xl"
+                title="Close"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900">NFT Marketplace</h1>
@@ -508,17 +536,7 @@ export default function MarketPage() {
           </form>
         </div>
 
-        {/* Transaction Status */}
-        {isConfirmed && (
-          <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-            <p className="text-green-800">✅ Transaction confirmed!</p>
-            {hash && (
-              <p className="text-sm text-green-600 mt-1 break-all">
-                Hash: {hash}
-              </p>
-            )}
-          </div>
-        )}
+        {/* Transaction Status - Now shown at top as floating notification */}
 
         {/* Info */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
