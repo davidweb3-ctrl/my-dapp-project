@@ -19,18 +19,11 @@ export default function BankPage() {
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [permitAmount, setPermitAmount] = useState('');
-  const [showNotification, setShowNotification] = useState(false);
+  const [lastAction, setLastAction] = useState<'deposit' | 'withdraw' | 'permitDeposit' | 'approve' | null>(null);
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
   const { signTypedDataAsync } = useSignTypedData();
-
-  // Show notification when transaction is confirmed
-  useEffect(() => {
-    if (isConfirmed) {
-      setShowNotification(true);
-    }
-  }, [isConfirmed]);
 
   // Read wallet token balance
   const { data: walletBalance } = useReadContract({
@@ -71,6 +64,7 @@ export default function BankPage() {
     if (!depositAmount) return;
 
     try {
+      setLastAction('deposit');
       writeContract({
         address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
         abi: TokenBank_ABI,
@@ -88,6 +82,7 @@ export default function BankPage() {
     if (!withdrawAmount) return;
 
     try {
+      setLastAction('withdraw');
       writeContract({
         address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
         abi: TokenBank_ABI,
@@ -104,6 +99,7 @@ export default function BankPage() {
     if (!depositAmount) return;
 
     try {
+      setLastAction('approve');
       writeContract({
         address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
         abi: MyERC20_ABI,
@@ -121,6 +117,7 @@ export default function BankPage() {
     if (!permitAmount || !address) return;
 
     try {
+      setLastAction('permitDeposit');
       const amount = parseUnits(permitAmount, 18);
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
 
@@ -182,34 +179,6 @@ export default function BankPage() {
 
   return (
     <div className="px-4 py-8">
-      {/* Floating Transaction Status - Fixed at top right */}
-      {showNotification && isConfirmed && (
-        <div className="fixed top-20 right-8 z-50 animate-fadeIn">
-          <div className="bg-green-50 border-2 border-green-500 rounded-lg p-4 shadow-2xl w-96">
-            <div className="flex items-start">
-              <svg className="w-6 h-6 text-green-600 mr-3 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div className="flex-1 min-w-0">
-                <p className="text-green-800 font-bold text-base">✅ Transaction Confirmed!</p>
-                {hash && (
-                  <p className="text-xs text-green-600 mt-1 break-all font-mono">
-                    Hash: {hash.slice(0, 10)}...{hash.slice(-8)}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={() => setShowNotification(false)}
-                className="ml-3 text-green-600 hover:text-green-800 font-bold flex-shrink-0"
-                title="Close"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       <div className="max-w-3xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">Token Bank</h1>
 
@@ -262,6 +231,16 @@ export default function BankPage() {
               {isPending ? 'Signing...' : isConfirming ? 'Processing...' : '⚡ Sign & Deposit (One Step)'}
             </button>
           </form>
+          {isConfirmed && lastAction === 'permitDeposit' && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-800 font-bold">✅ Permit Deposit Confirmed!</p>
+              {hash && (
+                <p className="text-sm text-green-600 mt-1 break-all">
+                  Hash: {hash}
+                </p>
+              )}
+            </div>
+          )}
           <div className="mt-4 p-3 bg-purple-100 rounded-lg">
             <p className="text-xs text-purple-800">
               <strong>💡 How it works:</strong> You sign a message to approve the deposit, then the contract 
@@ -305,6 +284,18 @@ export default function BankPage() {
               </button>
             </div>
           </form>
+          {isConfirmed && (lastAction === 'deposit' || lastAction === 'approve') && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-800 font-bold">
+                ✅ {lastAction === 'approve' ? 'Approval' : 'Deposit'} Confirmed!
+              </p>
+              {hash && (
+                <p className="text-sm text-green-600 mt-1 break-all">
+                  Hash: {hash}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Withdraw Section */}
@@ -332,6 +323,16 @@ export default function BankPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Withdraw'}
             </button>
           </form>
+          {isConfirmed && lastAction === 'withdraw' && (
+            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-800 font-bold">✅ Withdraw Confirmed!</p>
+              {hash && (
+                <p className="text-sm text-green-600 mt-1 break-all">
+                  Hash: {hash}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Transaction Status - Now shown at top as floating notification */}
