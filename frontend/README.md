@@ -11,10 +11,11 @@ A complete Web3 frontend application built with Next.js, Wagmi, Viem, and Rainbo
 - EIP-2612 permit signatures support
 
 ### 🏦 Token Bank
-- Deposit tokens securely
+- **Traditional Deposit**: Approve + Deposit (two transactions)
+- **⚡ Permit Deposit (EIP-2612)**: Sign + Deposit in one transaction (gasless approval)
 - Withdraw tokens anytime
 - Track savings balance
-- Gasless deposits with permit
+- Real-time balance updates
 
 ### 🎨 NFT Collection (MyNFT)
 - Mint unique NFTs (owner only)
@@ -24,8 +25,9 @@ A complete Web3 frontend application built with Next.js, Wagmi, Viem, and Rainbo
 
 ### 🛒 NFT Marketplace
 - List NFTs for sale
-- Buy NFTs with ERC20 tokens
-- EIP-712 whitelist signatures
+- **Traditional Buy**: Standard NFT purchase with token payment
+- **🎫 Whitelist Buy (EIP-712)**: Purchase with market owner signature (presales/VIP access)
+- **Owner Tools**: Generate whitelist signatures for exclusive sales
 - Secure P2P trading
 
 ## Tech Stack
