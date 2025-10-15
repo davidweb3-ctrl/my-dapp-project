@@ -6,6 +6,7 @@
 ![Foundry](https://img.shields.io/badge/Foundry-Latest-orange)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![pnpm](https://img.shields.io/badge/pnpm-10.18.3-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 A production-ready decentralized application featuring ERC20 tokens, NFT collection, token banking system, and NFT marketplace with whitelist functionality.
@@ -71,7 +72,7 @@ This is a comprehensive full-stack DApp that demonstrates modern blockchain deve
 |------|---------|---------|
 | [Foundry](https://book.getfoundry.sh/getting-started/installation) | Latest | Smart contract development & testing |
 | [Node.js](https://nodejs.org/) | 18+ | Frontend development |
-| [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/) | Latest | Package management |
+| [pnpm](https://pnpm.io/) | Latest | Package management |
 | [Git](https://git-scm.com/) | Latest | Version control |
 | [MetaMask](https://metamask.io/) | Browser Extension | Wallet for testing |
 
@@ -98,7 +99,32 @@ nvm use 18
 
 # Verify installation
 node --version  # Should be v18.x or higher
-npm --version
+
+# Install pnpm
+npm install -g pnpm
+pnpm --version
+```
+
+### Why pnpm?
+
+This project uses **pnpm** as the package manager for several advantages:
+
+- 🚀 **Faster**: Up to 2x faster than npm/yarn
+- 💾 **Disk Efficient**: Uses hard links to avoid duplicate packages
+- 🔒 **Strict**: Better dependency resolution and security
+- 📦 **Monorepo Ready**: Excellent workspace support
+- 🎯 **Compatible**: Drop-in replacement for npm commands
+
+**Alternative installation methods:**
+```bash
+# Using Homebrew (macOS)
+brew install pnpm
+
+# Using curl
+curl -fsSL https://get.pnpm.io/install.sh | sh -
+
+# Using npm (as shown above)
+npm install -g pnpm
 ```
 
 ---
@@ -179,10 +205,8 @@ forge coverage
 ```bash
 cd frontend
 
-# Install packages
-npm install
-# or
-yarn install
+# Install packages with pnpm
+pnpm install
 
 # Verify installation
 ls node_modules/
@@ -349,13 +373,7 @@ export const config = getDefaultConfig({
 ```bash
 cd frontend
 
-# Start development server
-npm run dev
-
-# Or with yarn
-yarn dev
-
-# Or with pnpm
+# Start development server with pnpm
 pnpm dev
 ```
 
@@ -365,14 +383,14 @@ pnpm dev
 
 ```bash
 # Build optimized production bundle
-npm run build
+pnpm build
 
 # Start production server
-npm start
+pnpm start
 
 # Or export static site
-npm run build
-npm run export
+pnpm build
+pnpm export
 ```
 
 ---
@@ -383,7 +401,7 @@ npm run export
 
 1. **Start Anvil**: Keep it running in a terminal
 2. **Deploy Contracts**: Follow deployment steps above
-3. **Run Frontend**: `cd frontend && npm run dev`
+3. **Run Frontend**: `cd frontend && pnpm dev`
 4. **Open Browser**: http://localhost:3000
 
 ### Connect Wallet
@@ -574,8 +592,8 @@ echo $SEPOLIA_RPC_URL
 ```bash
 # Solution: Reinstall dependencies
 cd frontend
-rm -rf node_modules package-lock.json
-npm install
+rm -rf node_modules pnpm-lock.yaml
+pnpm install
 ```
 
 #### Error: `ChainMismatchError`
@@ -706,7 +724,9 @@ my-dapp-project/
 │   ├── app/               # Pages
 │   ├── components/        # React components
 │   ├── utils/             # Config & ABIs
-│   └── styles/            # CSS
+│   ├── styles/            # CSS
+│   ├── package.json       # Dependencies & scripts
+│   └── pnpm-lock.yaml     # pnpm lock file
 ├── lib/                    # Dependencies
 ├── foundry.toml           # Foundry config
 └── README.md              # This file
