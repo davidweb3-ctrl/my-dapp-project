@@ -45,9 +45,9 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
     // Listing structure - optimized for gas efficiency
     struct Listing {
         address seller;    // 20 bytes
-        uint128 price;     // 16 bytes (足够存储大部分价格)
+        uint128 price;     // 16 bytes (sufficient for most prices)
         bool isListed;     // 1 byte
-        // 总共37字节，打包到2个存储槽
+        // Total 37 bytes, packed into 2 storage slots
     }
     
     // Mapping from token ID to listing
@@ -95,17 +95,17 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
     function list(uint256 tokenId, uint256 price) external {
         if (price == 0 || price > MAX_PRICE) revert PriceMustBeGreaterThanZero();
         
-        // 内联验证，减少函数调用
+        // Inline validation to reduce function calls
         address owner = nftContract.ownerOf(tokenId);
         if (owner != msg.sender) revert CallerNotOwner();
         
-        // 优化授权检查
+        // Optimize approval check
         address approved = nftContract.getApproved(tokenId);
         if (approved != address(this) && !nftContract.isApprovedForAll(msg.sender, address(this))) {
             revert ContractNotApproved();
         }
         
-        // 使用存储指针而不是内存复制
+        // Use storage pointer instead of memory copy
         Listing storage listing = listings[tokenId];
         if (listing.isListed) revert NFTAlreadyListed();
         
@@ -190,13 +190,13 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
         if (msg.sender != buyer) revert CallerNotSpecifiedBuyer();
         if (block.timestamp > deadline) revert SignatureExpired();
         
-        // 使用存储指针
+        // Use storage pointer
         Listing storage listing = listings[tokenId];
         if (!listing.isListed) revert NFTNotListed();
         if (price != listing.price) revert PriceDoesNotMatchListing();
         if (buyer == listing.seller) revert SellerCannotBuyOwn();
         
-        // 预计算哈希，减少重复计算
+        // Pre-compute hash to reduce repeated calculations
         bytes32 structHash = keccak256(
             abi.encode(
                 WHITELIST_TYPEHASH,
@@ -215,10 +215,10 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
         address seller = listing.seller;
         uint128 listingPrice = listing.price;
         
-        // 清理存储
+        // Clear storage
         delete listings[tokenId];
         
-        // 执行转账
+        // Execute transfer
         _executeTransfer(seller, buyer, tokenId, listingPrice);
     }
     
@@ -335,17 +335,17 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
     function _listSingle(uint256 tokenId, uint256 price) internal {
         if (price == 0 || price > MAX_PRICE) revert PriceMustBeGreaterThanZero();
         
-        // 内联验证，减少函数调用
+        // Inline validation to reduce function calls
         address owner = nftContract.ownerOf(tokenId);
         if (owner != msg.sender) revert CallerNotOwner();
         
-        // 优化授权检查
+        // Optimize approval check
         address approved = nftContract.getApproved(tokenId);
         if (approved != address(this) && !nftContract.isApprovedForAll(msg.sender, address(this))) {
             revert ContractNotApproved();
         }
         
-        // 使用存储指针而不是内存复制
+        // Use storage pointer instead of memory copy
         Listing storage listing = listings[tokenId];
         if (listing.isListed) revert NFTAlreadyListed();
         
