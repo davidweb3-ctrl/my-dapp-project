@@ -19,29 +19,51 @@ import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 contract NFTMarket is EIP712, Ownable, ERC165 {
     using ECDSA for bytes32;
     
+    // Custom errors for gas optimization
+    error PriceMustBeGreaterThanZero();
+    error CallerNotOwner();
+    error ContractNotApproved();
+    error NFTAlreadyListed();
+    error NFTNotListed();
+    error SellerCannotBuyOwn();
+    error InvalidWhitelistSignature();
+    error SignatureExpired();
+    error PaymentTransferFailed();
+    error PaymentTokenAddressZero();
+    error NFTContractAddressZero();
+    error CallerNotSpecifiedBuyer();
+    error PriceDoesNotMatchListing();
+    error ArraysLengthMismatch();
+    error TooManyItems();
+    
     // The ERC20 token used for payments
     IERC20 public immutable paymentToken;
     
     // The NFT contract
     IERC721 public immutable nftContract;
     
-    // Listing structure
+    // Listing structure - optimized for gas efficiency
     struct Listing {
-        address seller;
-        uint256 price;
-        bool isListed;
+        address seller;    // 20 bytes
+        uint128 price;     // 16 bytes (足够存储大部分价格)
+        bool isListed;     // 1 byte
+        // 总共37字节，打包到2个存储槽
     }
     
     // Mapping from token ID to listing
     mapping(uint256 => Listing) public listings;
     
+    // Constants for gas optimization
+    uint256 private constant MAX_BATCH_SIZE = 50;
+    uint128 private constant MAX_PRICE = type(uint128).max;
+    
     // EIP-712 type hash for whitelist verification
     bytes32 private constant WHITELIST_TYPEHASH = 
         keccak256("Whitelist(address buyer,uint256 tokenId,uint256 price,uint256 deadline)");
     
-    // Events
-    event NFTListed(uint256 indexed tokenId, address indexed seller, uint256 price);
-    event NFTSold(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price);
+    // Events - optimized for gas efficiency
+    event NFTListed(uint256 indexed tokenId, address indexed seller, uint128 price);
+    event NFTSold(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint128 price);
     event ListingCancelled(uint256 indexed tokenId, address indexed seller);
     
     /**
@@ -53,8 +75,8 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
         EIP712("NFTMarket", "1") 
         Ownable(msg.sender) 
     {
-        require(_paymentToken != address(0), "NFTMarket: payment token address cannot be zero");
-        require(_nftContract != address(0), "NFTMarket: NFT contract address cannot be zero");
+        if (_paymentToken == address(0)) revert PaymentTokenAddressZero();
+        if (_nftContract == address(0)) revert NFTContractAddressZero();
         
         paymentToken = IERC20(_paymentToken);
         nftContract = IERC721(_nftContract);
@@ -71,24 +93,48 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
      * - Price must be greater than 0
      */
     function list(uint256 tokenId, uint256 price) external {
-        require(price > 0, "NFTMarket: price must be greater than 0");
-        require(nftContract.ownerOf(tokenId) == msg.sender, "NFTMarket: caller is not the owner");
-        require(
-            nftContract.getApproved(tokenId) == address(this) || 
-            nftContract.isApprovedForAll(msg.sender, address(this)),
-            "NFTMarket: contract not approved to transfer NFT"
-        );
-        require(!listings[tokenId].isListed, "NFTMarket: NFT already listed");
+        if (price == 0 || price > MAX_PRICE) revert PriceMustBeGreaterThanZero();
         
-        listings[tokenId] = Listing({
-            seller: msg.sender,
-            price: price,
-            isListed: true
-        });
+        // 内联验证，减少函数调用
+        address owner = nftContract.ownerOf(tokenId);
+        if (owner != msg.sender) revert CallerNotOwner();
         
-        emit NFTListed(tokenId, msg.sender, price);
+        // 优化授权检查
+        address approved = nftContract.getApproved(tokenId);
+        if (approved != address(this) && !nftContract.isApprovedForAll(msg.sender, address(this))) {
+            revert ContractNotApproved();
+        }
+        
+        // 使用存储指针而不是内存复制
+        Listing storage listing = listings[tokenId];
+        if (listing.isListed) revert NFTAlreadyListed();
+        
+        listing.seller = msg.sender;
+        listing.price = uint128(price);
+        listing.isListed = true;
+        
+        emit NFTListed(tokenId, msg.sender, uint128(price));
     }
     
+    /**
+     * @dev Internal function to execute transfers
+     */
+    function _executeTransfer(
+        address seller,
+        address buyer, 
+        uint256 tokenId,
+        uint128 price
+    ) internal {
+        // Transfer payment tokens from buyer to seller
+        bool paymentSuccess = paymentToken.transferFrom(buyer, seller, price);
+        if (!paymentSuccess) revert PaymentTransferFailed();
+        
+        // Transfer NFT from seller to buyer
+        nftContract.safeTransferFrom(seller, buyer, tokenId);
+        
+        emit NFTSold(tokenId, seller, buyer, price);
+    }
+
     /**
      * @dev Buy an NFT that is listed for sale
      * @param tokenId The ID of the NFT to buy
@@ -99,21 +145,19 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
      * - Caller must have sufficient token balance
      */
     function buyNFT(uint256 tokenId) external {
-        Listing memory listing = listings[tokenId];
-        require(listing.isListed, "NFTMarket: NFT not listed for sale");
-        require(msg.sender != listing.seller, "NFTMarket: seller cannot buy their own NFT");
+        Listing storage listing = listings[tokenId];
+        if (!listing.isListed) revert NFTNotListed();
+        if (msg.sender == listing.seller) revert SellerCannotBuyOwn();
+        
+        // Store values before deletion
+        address seller = listing.seller;
+        uint128 price = listing.price;
         
         // Remove listing before transfers (Checks-Effects-Interactions)
         delete listings[tokenId];
         
-        // Transfer payment tokens from buyer to seller
-        bool paymentSuccess = paymentToken.transferFrom(msg.sender, listing.seller, listing.price);
-        require(paymentSuccess, "NFTMarket: payment transfer failed");
-        
-        // Transfer NFT from seller to buyer
-        nftContract.safeTransferFrom(listing.seller, msg.sender, tokenId);
-        
-        emit NFTSold(tokenId, listing.seller, msg.sender, listing.price);
+        // Execute transfers
+        _executeTransfer(seller, msg.sender, tokenId, price);
     }
     
     /**
@@ -143,15 +187,16 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
         bytes32 r,
         bytes32 s
     ) external {
-        require(msg.sender == buyer, "NFTMarket: caller is not the specified buyer");
-        require(block.timestamp <= deadline, "NFTMarket: signature expired");
+        if (msg.sender != buyer) revert CallerNotSpecifiedBuyer();
+        if (block.timestamp > deadline) revert SignatureExpired();
         
-        Listing memory listing = listings[tokenId];
-        require(listing.isListed, "NFTMarket: NFT not listed for sale");
-        require(price == listing.price, "NFTMarket: price does not match listing");
-        require(buyer != listing.seller, "NFTMarket: seller cannot buy their own NFT");
+        // 使用存储指针
+        Listing storage listing = listings[tokenId];
+        if (!listing.isListed) revert NFTNotListed();
+        if (price != listing.price) revert PriceDoesNotMatchListing();
+        if (buyer == listing.seller) revert SellerCannotBuyOwn();
         
-        // Verify EIP-712 signature
+        // 预计算哈希，减少重复计算
         bytes32 structHash = keccak256(
             abi.encode(
                 WHITELIST_TYPEHASH,
@@ -164,20 +209,17 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
         
         bytes32 hash = _hashTypedDataV4(structHash);
         address signer = hash.recover(v, r, s);
+        if (signer != owner()) revert InvalidWhitelistSignature();
         
-        require(signer == owner(), "NFTMarket: invalid whitelist signature");
+        // Store values before deletion
+        address seller = listing.seller;
+        uint128 listingPrice = listing.price;
         
-        // Remove listing before transfers (Checks-Effects-Interactions)
+        // 清理存储
         delete listings[tokenId];
         
-        // Transfer payment tokens from buyer to seller
-        bool paymentSuccess = paymentToken.transferFrom(buyer, listing.seller, listing.price);
-        require(paymentSuccess, "NFTMarket: payment transfer failed");
-        
-        // Transfer NFT from seller to buyer
-        nftContract.safeTransferFrom(listing.seller, buyer, tokenId);
-        
-        emit NFTSold(tokenId, listing.seller, buyer, listing.price);
+        // 执行转账
+        _executeTransfer(seller, buyer, tokenId, listingPrice);
     }
     
     /**
@@ -189,9 +231,9 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
      * - NFT must be listed
      */
     function cancelListing(uint256 tokenId) external {
-        Listing memory listing = listings[tokenId];
-        require(listing.isListed, "NFTMarket: NFT not listed");
-        require(listing.seller == msg.sender, "NFTMarket: caller is not the seller");
+        Listing storage listing = listings[tokenId];
+        if (!listing.isListed) revert NFTNotListed();
+        if (listing.seller != msg.sender) revert CallerNotOwner();
         
         delete listings[tokenId];
         
@@ -245,6 +287,75 @@ contract NFTMarket is EIP712, Ownable, ERC165 {
         return _hashTypedDataV4(structHash);
     }
     
+    /**
+     * @dev Batch list multiple NFTs for sale
+     * @param tokenIds Array of token IDs to list
+     * @param prices Array of prices corresponding to each token ID
+     */
+    function batchList(
+        uint256[] calldata tokenIds, 
+        uint256[] calldata prices
+    ) external {
+        if (tokenIds.length != prices.length) revert ArraysLengthMismatch();
+        if (tokenIds.length > MAX_BATCH_SIZE) revert TooManyItems();
+        
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            _listSingle(tokenIds[i], prices[i]);
+        }
+    }
+    
+    /**
+     * @dev Batch cancel multiple listings
+     * @param tokenIds Array of token IDs to cancel
+     */
+    function batchCancel(uint256[] calldata tokenIds) external {
+        if (tokenIds.length > MAX_BATCH_SIZE) revert TooManyItems();
+        
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            _cancelSingle(tokenIds[i]);
+        }
+    }
+    
+    /**
+     * @dev Internal function to cancel a single listing
+     */
+    function _cancelSingle(uint256 tokenId) internal {
+        Listing storage listing = listings[tokenId];
+        if (!listing.isListed) revert NFTNotListed();
+        if (listing.seller != msg.sender) revert CallerNotOwner();
+        
+        delete listings[tokenId];
+        
+        emit ListingCancelled(tokenId, msg.sender);
+    }
+    
+    /**
+     * @dev Internal function to list a single NFT
+     */
+    function _listSingle(uint256 tokenId, uint256 price) internal {
+        if (price == 0 || price > MAX_PRICE) revert PriceMustBeGreaterThanZero();
+        
+        // 内联验证，减少函数调用
+        address owner = nftContract.ownerOf(tokenId);
+        if (owner != msg.sender) revert CallerNotOwner();
+        
+        // 优化授权检查
+        address approved = nftContract.getApproved(tokenId);
+        if (approved != address(this) && !nftContract.isApprovedForAll(msg.sender, address(this))) {
+            revert ContractNotApproved();
+        }
+        
+        // 使用存储指针而不是内存复制
+        Listing storage listing = listings[tokenId];
+        if (listing.isListed) revert NFTAlreadyListed();
+        
+        listing.seller = msg.sender;
+        listing.price = uint128(price);
+        listing.isListed = true;
+        
+        emit NFTListed(tokenId, msg.sender, uint128(price));
+    }
+
     /**
      * @dev See {IERC165-supportsInterface}.
      * @param interfaceId The interface identifier, as specified in ERC-165
