@@ -26,6 +26,17 @@ export default function TokenPage() {
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
 
+  // Clear errors and reset state when wallet address changes or disconnects
+  useEffect(() => {
+    setTransferError(null);
+    setApproveError(null);
+    setLastAction(null);
+    setTransferTo('');
+    setTransferAmount('');
+    setApproveSpender('');
+    setApproveAmount('');
+  }, [address, isConnected]);
+
   // Read balance
   const { data: balance } = useReadContract({
     address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,

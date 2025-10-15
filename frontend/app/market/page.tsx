@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSignTypedData, useChainId } from 'wagmi';
 import { CONTRACT_ADDRESSES, NFTMarket_ABI, MyNFT_ABI, MyERC20_ABI } from '../../utils/contracts';
 import { formatUnits, parseUnits, Address } from 'viem';
+import { publicClient } from '../../utils/viemClient';
 
 interface Listing {
   tokenId: number;
@@ -31,12 +32,16 @@ export default function MarketPage() {
   
   // For whitelist buying
   const [whitelistTokenId, setWhitelistTokenId] = useState('');
+  const [whitelistBuyerAddress, setWhitelistBuyerAddress] = useState('');
+  const [nftApprovalStatus, setNftApprovalStatus] = useState<boolean | null>(null);
+  const [showApprovalStatus, setShowApprovalStatus] = useState(false);
   const [whitelistSignature, setWhitelistSignature] = useState('');
   const [showSignatureGenerator, setShowSignatureGenerator] = useState(false);
   const [lastAction, setLastAction] = useState<'list' | 'buy' | 'permitBuy' | 'approveNFT' | 'approveToken' | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const { writeContract, data: hash, isPending } = useWriteContract();
-  const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+  const { writeContract, data: hash, isPending, isError: writeError, error: writeErrorMsg } = useWriteContract();
+  const { isLoading: isConfirming, isSuccess: isConfirmed, isError: receiptError, error: receiptErrorMsg } = useWaitForTransactionReceipt({ hash });
   const { signTypedDataAsync } = useSignTypedData();
 
   // Read market owner
@@ -72,22 +77,165 @@ export default function MarketPage() {
     }
   }, [listing, viewTokenId]);
 
+  // Clear errors and reset state when wallet address changes or disconnects
+  useEffect(() => {
+    setErrorMessage(null);
+    setLastAction(null);
+    setWhitelistSignature('');
+    setWhitelistTokenId('');
+    setWhitelistBuyerAddress('');
+    setNftApprovalStatus(null);
+    setShowApprovalStatus(false);
+  }, [address, isConnected]);
+
+  // Update approval status when token ID changes
+  useEffect(() => {
+    updateApprovalStatus(listTokenId);
+  }, [listTokenId, address]);
+
+  // Update approval status when NFT approval transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed && lastAction === 'approveNFT' && listTokenId) {
+      // Wait a bit for the blockchain state to update, then recheck
+      setTimeout(() => {
+        updateApprovalStatus(listTokenId, true); // Force show after approval
+      }, 1000);
+    }
+  }, [isConfirmed, lastAction, listTokenId]);
+
+  // Clear error messages when transaction is successful
+  useEffect(() => {
+    if (isConfirmed && lastAction) {
+      setErrorMessage(null); // Clear any error messages on success
+    }
+  }, [isConfirmed, lastAction]);
+
+  // Handle write contract errors
+  useEffect(() => {
+    if (writeError && writeErrorMsg) {
+      console.error('Write contract error:', writeErrorMsg);
+      let errorMsg = 'Transaction failed: ';
+      
+      if (writeErrorMsg.message) {
+        if (writeErrorMsg.message.includes('Nonce too high')) {
+          errorMsg += 'Nonce too high. Please reset your wallet or try again.';
+        } else if (writeErrorMsg.message.includes('insufficient funds')) {
+          errorMsg += 'Insufficient funds for gas or transaction.';
+        } else if (writeErrorMsg.message.includes('user rejected')) {
+          errorMsg += 'Transaction was rejected by user.';
+        } else if (writeErrorMsg.message.includes('execution reverted')) {
+          errorMsg += 'Contract execution failed. Check if the NFT is listed and you have sufficient tokens.';
+        } else {
+          errorMsg += writeErrorMsg.message;
+        }
+      } else {
+        errorMsg += 'Unknown error occurred.';
+      }
+      
+      setErrorMessage(errorMsg);
+      setLastAction(null);
+    }
+  }, [writeError, writeErrorMsg]);
+
+  // Handle transaction receipt errors
+  useEffect(() => {
+    if (receiptError && receiptErrorMsg) {
+      console.error('Transaction receipt error:', receiptErrorMsg);
+      setErrorMessage('Transaction failed to confirm. Please check the transaction status.');
+      setLastAction(null);
+    }
+  }, [receiptError, receiptErrorMsg]);
+
+  // Check if NFT is approved for the market
+  const checkNFTApproval = async (tokenId: string) => {
+    try {
+      // First check if the NFT exists and user owns it
+      const owner = await publicClient.readContract({
+        address: CONTRACT_ADDRESSES.MyNFT as Address,
+        abi: MyNFT_ABI,
+        functionName: 'ownerOf',
+        args: [BigInt(tokenId)],
+      });
+      
+      // If user doesn't own the NFT, return null (unknown state)
+      if (owner !== address) {
+        return null;
+      }
+      
+      const approvedAddress = await publicClient.readContract({
+        address: CONTRACT_ADDRESSES.MyNFT as Address,
+        abi: MyNFT_ABI,
+        functionName: 'getApproved',
+        args: [BigInt(tokenId)],
+      });
+      
+      const isApprovedForAll = await publicClient.readContract({
+        address: CONTRACT_ADDRESSES.MyNFT as Address,
+        abi: MyNFT_ABI,
+        functionName: 'isApprovedForAll',
+        args: [address as Address, CONTRACT_ADDRESSES.NFTMarket as Address],
+      });
+      
+      return approvedAddress === CONTRACT_ADDRESSES.NFTMarket || (isApprovedForAll as boolean);
+    } catch (error) {
+      console.error('Error checking NFT approval:', error);
+      return null; // Return null for unknown state instead of false
+    }
+  };
+
+  // Update NFT approval status when token ID changes
+  const updateApprovalStatus = async (tokenId: string, forceShow: boolean = false) => {
+    if (!tokenId || !address) {
+      setNftApprovalStatus(null);
+      setShowApprovalStatus(false);
+      return;
+    }
+    
+    try {
+      const isApproved = await checkNFTApproval(tokenId);
+      setNftApprovalStatus(isApproved);
+      
+      // Only show status if:
+      // 1. Force show is true (after approval transaction)
+      // 2. User tried to list but NFT is not approved
+      // 3. User doesn't own the NFT
+      if (forceShow || isApproved === false || isApproved === null) {
+        setShowApprovalStatus(true);
+      }
+    } catch (error) {
+      console.error('Error updating approval status:', error);
+      setNftApprovalStatus(null);
+      setShowApprovalStatus(false);
+    }
+  };
+
   // Handle list NFT
   const handleList = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!listTokenId || !listPrice) return;
 
-    try {
-      setLastAction('list');
-      writeContract({
-        address: CONTRACT_ADDRESSES.NFTMarket as `0x${string}`,
-        abi: NFTMarket_ABI,
-        functionName: 'list',
-        args: [BigInt(listTokenId), parseUnits(listPrice, 18)],
-      });
-    } catch (error) {
-      console.error('List error:', error);
+    setErrorMessage(null); // Clear previous errors
+    setLastAction('list');
+    
+    // Check if NFT is approved before attempting to list
+    const isApproved = await checkNFTApproval(listTokenId);
+    if (isApproved === null) {
+      setErrorMessage('❌ You don\'t own this NFT or it doesn\'t exist. Please check the Token ID.');
+      setShowApprovalStatus(true); // Show status after error
+      return;
     }
+    if (isApproved === false) {
+      setErrorMessage('❌ NFT not approved! Please click "1. Approve NFT" first to authorize the marketplace to transfer your NFT.');
+      setShowApprovalStatus(true); // Show status after error
+      return;
+    }
+    
+    writeContract({
+      address: CONTRACT_ADDRESSES.NFTMarket as `0x${string}`,
+      abi: NFTMarket_ABI,
+      functionName: 'list',
+      args: [BigInt(listTokenId), parseUnits(listPrice, 18)],
+    });
   };
 
   // Handle traditional buy
@@ -95,33 +243,58 @@ export default function MarketPage() {
     e.preventDefault();
     if (!buyTokenId) return;
 
-    try {
-      setLastAction('buy');
-      writeContract({
-        address: CONTRACT_ADDRESSES.NFTMarket as `0x${string}`,
-        abi: NFTMarket_ABI,
-        functionName: 'buyNFT',
-        args: [BigInt(buyTokenId)],
-      });
-    } catch (error) {
-      console.error('Buy error:', error);
-    }
+    setErrorMessage(null); // Clear previous errors
+    setLastAction('buy');
+    writeContract({
+      address: CONTRACT_ADDRESSES.NFTMarket as `0x${string}`,
+      abi: NFTMarket_ABI,
+      functionName: 'buyNFT',
+      args: [BigInt(buyTokenId)],
+    });
   };
+  
 
   // Generate whitelist signature (Market Owner only)
   const handleGenerateSignature = async () => {
-    if (!isMarketOwner || !whitelistTokenId) {
-      alert('You must be the market owner and enter a valid token ID');
+    if (!isMarketOwner || !whitelistTokenId || !whitelistBuyerAddress) {
+      alert('You must be the market owner and enter both token ID and buyer address');
+      return;
+    }
+
+    // Validate buyer address format
+    if (!/^0x[a-fA-F0-9]{40}$/.test(whitelistBuyerAddress)) {
+      alert('Please enter a valid Ethereum address (0x...)');
       return;
     }
 
     try {
       const tokenId = BigInt(whitelistTokenId);
-      const buyer = address; // For demo, owner can generate signature for themselves
+      const buyer = whitelistBuyerAddress as Address;
       
-      // For demo purposes, use a default price if no listing info is available
-      // In a real scenario, you might want to fetch the actual listing price
-      const price = listingInfo?.price || BigInt(1000 * 10**18); // Default 1000 tokens
+      // Get the actual listing price for the token
+      let price: bigint;
+      if (listingInfo && listingInfo.tokenId.toString() === whitelistTokenId) {
+        price = listingInfo.price;
+      } else {
+        // If no listing info available, fetch it from the contract
+        try {
+          const listingResponse = await publicClient.readContract({
+            address: CONTRACT_ADDRESSES.NFTMarket as Address,
+            abi: NFTMarket_ABI,
+            functionName: 'getListing',
+            args: [tokenId],
+          });
+          const [seller, listingPrice, isListed] = listingResponse as [string, bigint, boolean];
+          if (!isListed) {
+            alert('This NFT is not listed for sale. Please list it first or use a different Token ID.');
+            return;
+          }
+          price = listingPrice;
+        } catch (error) {
+          alert('Failed to fetch listing information. Please make sure the NFT is listed.');
+          return;
+        }
+      }
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
 
       // Sign EIP-712 typed data
@@ -142,7 +315,7 @@ export default function MarketPage() {
         },
         primaryType: 'Whitelist',
         message: {
-          buyer: buyer as Address,
+          buyer: buyer,
           tokenId: tokenId,
           price: price,
           deadline: deadline,
@@ -167,8 +340,11 @@ export default function MarketPage() {
 
   // Handle whitelist buy with signature
   const handleWhitelistBuy = async () => {
+    // Clear previous errors
+    setErrorMessage(null);
+    
     if (!whitelistTokenId || !whitelistSignature || !address) {
-      alert('Please enter token ID and paste the whitelist signature');
+      setErrorMessage('Please enter token ID and paste the whitelist signature');
       return;
     }
 
@@ -177,12 +353,30 @@ export default function MarketPage() {
       
       // Verify buyer address matches
       if (signatureObj.buyer.toLowerCase() !== address.toLowerCase()) {
-        alert('This signature is not for your address!');
+        setErrorMessage('This signature is not for your address!');
+        return;
+      }
+
+      // Validate signature format
+      if (!signatureObj.signature || !signatureObj.tokenId || !signatureObj.price || !signatureObj.deadline) {
+        setErrorMessage('Invalid signature format. Please check the signature data.');
+        return;
+      }
+
+      // Check if signature is expired
+      const currentTime = Math.floor(Date.now() / 1000);
+      if (parseInt(signatureObj.deadline) < currentTime) {
+        setErrorMessage('Signature has expired. Please get a new signature from the market owner.');
         return;
       }
 
       // Split signature into v, r, s
       const signature = signatureObj.signature;
+      if (signature.length !== 132) {
+        setErrorMessage('Invalid signature length. Please check the signature data.');
+        return;
+      }
+
       const r = `0x${signature.slice(2, 66)}` as `0x${string}`;
       const s = `0x${signature.slice(66, 130)}` as `0x${string}`;
       const v = parseInt(signature.slice(130, 132), 16);
@@ -203,9 +397,12 @@ export default function MarketPage() {
           s,
         ],
       });
-    } catch (error) {
-      console.error('Whitelist buy error:', error);
-      alert('Invalid signature or transaction failed');
+    } catch (error: any) {
+      // Only handle JSON parsing and validation errors here
+      // Transaction errors are handled by global error handler
+      console.error('Whitelist buy validation error:', error);
+      setErrorMessage('Invalid signature data. Please check the signature format.');
+      setLastAction(null);
     }
   };
 
@@ -213,34 +410,28 @@ export default function MarketPage() {
   const handleApproveToken = async (amount: string) => {
     if (!amount) return;
 
-    try {
-      setLastAction('approveToken');
-      writeContract({
-        address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
-        abi: MyERC20_ABI,
-        functionName: 'approve',
-        args: [CONTRACT_ADDRESSES.NFTMarket as `0x${string}`, parseUnits(amount, 18)],
-      });
-    } catch (error) {
-      console.error('Approve error:', error);
-    }
+    setErrorMessage(null); // Clear previous errors
+    setLastAction('approveToken');
+    writeContract({
+      address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
+      abi: MyERC20_ABI,
+      functionName: 'approve',
+      args: [CONTRACT_ADDRESSES.NFTMarket as `0x${string}`, parseUnits(amount, 18)],
+    });
   };
 
   // Approve market to transfer NFT
   const handleApproveNFT = async (tokenId: string) => {
     if (!tokenId) return;
 
-    try {
-      setLastAction('approveNFT');
-      writeContract({
-        address: CONTRACT_ADDRESSES.MyNFT as `0x${string}`,
-        abi: MyNFT_ABI,
-        functionName: 'approve',
-        args: [CONTRACT_ADDRESSES.NFTMarket as `0x${string}`, BigInt(tokenId)],
-      });
-    } catch (error) {
-      console.error('Approve NFT error:', error);
-    }
+    setErrorMessage(null); // Clear previous errors
+    setLastAction('approveNFT');
+    writeContract({
+      address: CONTRACT_ADDRESSES.MyNFT as `0x${string}`,
+      abi: MyNFT_ABI,
+      functionName: 'approve',
+      args: [CONTRACT_ADDRESSES.NFTMarket as `0x${string}`, BigInt(tokenId)],
+    });
   };
 
   // View listing
@@ -272,6 +463,29 @@ export default function MarketPage() {
           )}
         </div>
 
+        {/* Global Error Message */}
+        {errorMessage && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start">
+              <div className="flex-shrink-0">
+                <span className="text-red-400 text-xl">❌</span>
+              </div>
+              <div className="ml-3 flex-1">
+                <h3 className="text-sm font-medium text-red-800">Transaction Failed</h3>
+                <p className="mt-1 text-sm text-red-700">{errorMessage}</p>
+                <div className="mt-3">
+                  <button
+                    onClick={() => setErrorMessage(null)}
+                    className="text-sm text-red-600 hover:text-red-800 underline"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {/* Whitelist Signature Generator (Owner Only) */}
         {isMarketOwner && (
@@ -287,8 +501,9 @@ export default function MarketPage() {
             </p>
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
               <p className="text-sm text-blue-800">
-                <strong>💡 How to use:</strong> Enter any Token ID (even if not listed) to generate a whitelist signature. 
-                The signature will authorize the specified buyer to purchase that NFT.
+                <strong>💡 How to use:</strong> Enter a Token ID and the buyer's Ethereum address to generate a whitelist signature. 
+                The signature will automatically fetch the correct listing price and authorize the specified buyer to purchase that NFT.
+                <br/><strong>Note:</strong> The NFT must be listed for sale first.
               </p>
             </div>
             <div className="space-y-4">
@@ -305,7 +520,22 @@ export default function MarketPage() {
                   className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  You can whitelist any Token ID, even if it's not currently listed for sale.
+                  You can whitelist any Token ID, but the NFT must be listed for sale first.
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Buyer Address to Whitelist
+                </label>
+                <input
+                  type="text"
+                  value={whitelistBuyerAddress}
+                  onChange={(e) => setWhitelistBuyerAddress(e.target.value)}
+                  placeholder="0x1234567890123456789012345678901234567890"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-yellow-500 font-mono text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter the Ethereum address of the buyer you want to whitelist.
                 </p>
               </div>
               <button
@@ -383,6 +613,8 @@ export default function MarketPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : '🎫 Buy with Whitelist Signature'}
             </button>
           </div>
+          
+          {/* Success Message */}
           {isConfirmed && lastAction === 'permitBuy' && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-green-800 font-bold">✅ Whitelist Purchase Confirmed!</p>
@@ -460,6 +692,27 @@ export default function MarketPage() {
                 min="0"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               />
+              {/* NFT Approval Status */}
+              {listTokenId && showApprovalStatus && nftApprovalStatus !== null && (
+                <div className="mt-2">
+                  {nftApprovalStatus === true ? (
+                    <div className="flex items-center text-green-600 text-sm">
+                      <span className="mr-2">✅</span>
+                      <span>NFT is approved for marketplace</span>
+                    </div>
+                  ) : nftApprovalStatus === false ? (
+                    <div className="flex items-center text-red-600 text-sm">
+                      <span className="mr-2">❌</span>
+                      <span>NFT not approved - Click "1. Approve NFT" first</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-orange-600 text-sm">
+                      <span className="mr-2">⚠️</span>
+                      <span>You don't own this NFT or it doesn't exist</span>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -485,8 +738,12 @@ export default function MarketPage() {
               </button>
               <button
                 type="submit"
-                disabled={isPending || isConfirming}
-                className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                disabled={isPending || isConfirming || (!!listTokenId && nftApprovalStatus === false)}
+                className={`flex-1 py-2 px-4 rounded-lg transition-colors ${
+                  (listTokenId && nftApprovalStatus === false)
+                    ? 'bg-gray-400 text-gray-600 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed'
+                }`}
               >
                 2. List
               </button>

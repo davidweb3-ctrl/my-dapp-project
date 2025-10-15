@@ -5,11 +5,8 @@ import { usePathname } from 'next/navigation';
 import WalletConnectButton from '../components/WalletConnectButton';
 import { WagmiProvider } from 'wagmi';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { config, chains } from '../utils/wagmiConfig';
 import '../styles/globals.css';
-import '@rainbow-me/rainbowkit/styles.css';
-import { hardhat } from 'wagmi/chains';
 
 const queryClient = new QueryClient();
 
@@ -33,8 +30,7 @@ export default function RootLayout({
       <body>
         <WagmiProvider config={config}>
           <QueryClientProvider client={queryClient}>
-            <RainbowKitProvider initialChain={hardhat}>
-              <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+            <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
                 {/* Navigation Bar */}
                 <nav className="bg-white shadow-lg">
                   <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -81,8 +77,7 @@ export default function RootLayout({
                     </p>
                   </div>
                 </footer>
-              </div>
-            </RainbowKitProvider>
+            </div>
           </QueryClientProvider>
         </WagmiProvider>
       </body>

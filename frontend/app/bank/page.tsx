@@ -25,6 +25,14 @@ export default function BankPage() {
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
   const { signTypedDataAsync } = useSignTypedData();
 
+  // Clear state when wallet address changes or disconnects
+  useEffect(() => {
+    setLastAction(null);
+    setDepositAmount('');
+    setWithdrawAmount('');
+    setPermitAmount('');
+  }, [address, isConnected]);
+
   // Read wallet token balance
   const { data: walletBalance } = useReadContract({
     address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
