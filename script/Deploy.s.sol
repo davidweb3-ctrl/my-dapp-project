@@ -7,6 +7,7 @@ import {MyERC20} from "../contracts/MyERC20.sol";
 import {TokenBank} from "../contracts/TokenBank.sol";
 import {MyNFT} from "../contracts/MyNFT.sol";
 import {NFTMarket} from "../contracts/NFTMarket.sol";
+import {MockPermit2} from "../contracts/mocks/MockPermit2.sol";
 
 /**
  * @title DeployScript
@@ -40,22 +41,28 @@ contract DeployScript is Script {
         console.log("   - Symbol:", token.symbol());
         console.log("   - Total Supply:", token.totalSupply());
         
-        // 2. Deploy TokenBank
-        console.log("\n2. Deploying TokenBank...");
-        bank = new TokenBank(address(token));
+        // 2. Deploy MockPermit2 (for testing)
+        console.log("\n2. Deploying MockPermit2...");
+        MockPermit2 mockPermit2 = new MockPermit2();
+        console.log("MockPermit2 deployed at:", address(mockPermit2));
+        
+        // 3. Deploy TokenBank
+        console.log("\n3. Deploying TokenBank...");
+        bank = new TokenBank(address(token), address(mockPermit2));
         console.log("TokenBank deployed at:", address(bank));
         console.log("   - Token:", address(bank.token()));
+        console.log("   - Permit2:", address(bank.permit2()));
         
-        // 3. Deploy MyNFT
-        console.log("\n3. Deploying MyNFT...");
+        // 4. Deploy MyNFT
+        console.log("\n4. Deploying MyNFT...");
         nft = new MyNFT();
         console.log("MyNFT deployed at:", address(nft));
         console.log("   - Name:", nft.name());
         console.log("   - Symbol:", nft.symbol());
         console.log("   - Owner:", nft.owner());
         
-        // 4. Deploy NFTMarket
-        console.log("\n4. Deploying NFTMarket...");
+        // 5. Deploy NFTMarket
+        console.log("\n5. Deploying NFTMarket...");
         market = new NFTMarket(address(token), address(nft));
         console.log("NFTMarket deployed at:", address(market));
         console.log("   - Payment Token:", address(market.paymentToken()));
@@ -129,7 +136,8 @@ contract DeployAndSetupScript is Script {
         
         // Deploy all contracts
         token = new MyERC20();
-        bank = new TokenBank(address(token));
+        MockPermit2 mockPermit2 = new MockPermit2();
+        bank = new TokenBank(address(token), address(mockPermit2));
         nft = new MyNFT();
         market = new NFTMarket(address(token), address(nft));
         

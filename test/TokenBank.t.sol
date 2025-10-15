@@ -4,6 +4,7 @@ pragma solidity ^0.8.20;
 import {Test, console} from "forge-std/Test.sol";
 import {MyERC20} from "../contracts/MyERC20.sol";
 import {TokenBank} from "../contracts/TokenBank.sol";
+import {MockPermit2} from "../contracts/mocks/MockPermit2.sol";
 
 contract TokenBankTest is Test {
     MyERC20 public token;
@@ -25,7 +26,9 @@ contract TokenBankTest is Test {
         user2 = makeAddr("user2");
         
         token = new MyERC20();
-        bank = new TokenBank(address(token));
+        // Create a mock Permit2 for testing
+        MockPermit2 mockPermit2 = new MockPermit2();
+        bank = new TokenBank(address(token), address(mockPermit2));
         
         // Give users some tokens
         token.transfer(user1, 10000 * 10**18);
@@ -38,7 +41,8 @@ contract TokenBankTest is Test {
     
     function testConstructorZeroAddress() public {
         vm.expectRevert("TokenBank: token address cannot be zero");
-        new TokenBank(address(0));
+        MockPermit2 mockPermit2 = new MockPermit2();
+        new TokenBank(address(0), address(mockPermit2));
     }
     
     function testDeposit() public {
