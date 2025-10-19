@@ -1,9 +1,19 @@
 // Contract addresses - Deployed on Anvil (Localhost)
 export const CONTRACT_ADDRESSES = {
   MyERC20: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-  TokenBank: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  MyNFT: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-  NFTMarket: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  TokenBank: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', // Updated with Permit2 support
+  MyNFT: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  NFTMarket: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
+  MockPermit2: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512', // MockPermit2 for testing
+} as const;
+
+// Contract type definitions to prevent automatic detection
+export const CONTRACT_TYPES = {
+  MyERC20: 'ERC20',
+  TokenBank: 'Custom', // Not an ERC20 token
+  MyNFT: 'ERC721',
+  NFTMarket: 'Custom',
+  MockPermit2: 'Custom',
 } as const;
 
 // MyERC20 ABI
@@ -124,7 +134,7 @@ export const MyERC20_ABI = [
 // TokenBank ABI
 export const TokenBank_ABI = [
   {
-    "inputs": [{"internalType": "address", "name": "_token", "type": "address"}],
+    "inputs": [{"internalType": "address", "name": "_token", "type": "address"}, {"internalType": "address", "name": "_permit2", "type": "address"}],
     "stateMutability": "nonpayable",
     "type": "constructor"
   },
@@ -164,6 +174,13 @@ export const TokenBank_ABI = [
   {
     "inputs": [{"internalType": "address", "name": "owner", "type": "address"}, {"internalType": "uint256", "name": "amount", "type": "uint256"}, {"internalType": "uint256", "name": "deadline", "type": "uint256"}, {"internalType": "uint8", "name": "v", "type": "uint8"}, {"internalType": "bytes32", "name": "r", "type": "bytes32"}, {"internalType": "bytes32", "name": "s", "type": "bytes32"}],
     "name": "permitDeposit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}, {"internalType": "uint160", "name": "amount", "type": "uint160"}, {"internalType": "uint48", "name": "expiration", "type": "uint48"}, {"internalType": "uint48", "name": "nonce", "type": "uint48"}, {"internalType": "uint8", "name": "v", "type": "uint8"}, {"internalType": "bytes32", "name": "r", "type": "bytes32"}, {"internalType": "bytes32", "name": "s", "type": "bytes32"}],
+    "name": "depositWithPermit2",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -341,6 +358,50 @@ export const NFTMarket_ABI = [
     "name": "owner",
     "outputs": [{"internalType": "address", "name": "", "type": "address"}],
     "stateMutability": "view",
+    "type": "function"
+  }
+] as const;
+
+// MockPermit2 ABI
+export const MockPermit2_ABI = [
+  {
+    "inputs": [],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "DOMAIN_SEPARATOR",
+    "outputs": [{"internalType": "bytes32", "name": "", "type": "bytes32"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}],
+    "name": "nonces",
+    "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}, {"internalType": "address", "name": "token", "type": "address"}, {"internalType": "address", "name": "spender", "type": "address"}],
+    "name": "allowance",
+    "outputs": [{"internalType": "uint160", "name": "amount", "type": "uint160"}, {"internalType": "uint48", "name": "expiration", "type": "uint48"}, {"internalType": "uint48", "name": "nonce", "type": "uint48"}],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}, {"internalType": "address", "name": "spender", "type": "address"}, {"internalType": "uint160", "name": "amount", "type": "uint160"}, {"internalType": "address", "name": "token", "type": "address"}, {"internalType": "uint48", "name": "expiration", "type": "uint48"}, {"internalType": "uint48", "name": "nonce", "type": "uint48"}, {"internalType": "uint8", "name": "v", "type": "uint8"}, {"internalType": "bytes32", "name": "r", "type": "bytes32"}, {"internalType": "bytes32", "name": "s", "type": "bytes32"}],
+    "name": "permitTransferFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{"internalType": "address", "name": "owner", "type": "address"}, {"internalType": "address", "name": "token", "type": "address"}, {"internalType": "address", "name": "spender", "type": "address"}, {"internalType": "uint160", "name": "amount", "type": "uint160"}, {"internalType": "uint48", "name": "expiration", "type": "uint48"}, {"internalType": "uint48", "name": "nonce", "type": "uint48"}],
+    "name": "setAllowance",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   }
 ] as const;

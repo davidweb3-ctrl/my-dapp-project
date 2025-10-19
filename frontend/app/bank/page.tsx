@@ -1,25 +1,47 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt, useSignTypedData, useChainId } from 'wagmi';
-import { CONTRACT_ADDRESSES, TokenBank_ABI, MyERC20_ABI } from '../../utils/contracts';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSignTypedData, useChainId } from 'wagmi';
+import { CONTRACT_ADDRESSES, TokenBank_ABI, MyERC20_ABI, MockPermit2_ABI } from '../../utils/contracts';
 import { formatUnits, parseUnits, Address } from 'viem';
+import { Permit2Utils, BatchDepositItem, DepositError, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../utils/permit2';
+import { getTokenBalance, getBankBalance, getPermit2Nonce } from '../../utils/customRpcClient';
+import DepositTypeSelector, { DepositType } from '../../components/DepositTypeSelector';
+import Permit2DepositForm from '../../components/Permit2DepositForm';
+import BatchDepositForm from '../../components/BatchDepositForm';
+import SignatureModal from '../../components/SignatureModal';
 
 /**
- * Bank Page
- * Interact with TokenBank contract
- * - Deposit tokens (traditional approve + deposit)
- * - Permit Deposit (gasless EIP-2612 signature + deposit in one transaction)
- * - Withdraw tokens
- * - View deposited balance
+ * Enhanced Bank Page with Permit2 Support
+ * Features:
+ * - Traditional deposit (approve + deposit)
+ * - Permit2 single deposit (signature + deposit)
+ * - Batch Permit2 deposits (multiple amounts, one signature)
+ * - Comprehensive error handling and user feedback
  */
 export default function BankPage() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
+  const [depositType, setDepositType] = useState<DepositType>('permit2');
+  const [lastAction, setLastAction] = useState<'deposit' | 'withdraw' | 'permitDeposit' | 'permit2Deposit' | 'batchDeposit' | 'approve' | null>(null);
+  
+  // Form states
   const [depositAmount, setDepositAmount] = useState('');
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [permitAmount, setPermitAmount] = useState('');
-  const [lastAction, setLastAction] = useState<'deposit' | 'withdraw' | 'permitDeposit' | 'approve' | null>(null);
+  
+  // Modal states
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
+  const [signatureModalData, setSignatureModalData] = useState<{
+    title: string;
+    message: string;
+    amount?: string;
+    expiration?: number;
+    type: 'permit2' | 'batch';
+  } | null>(null);
+  
+  // Error states
+  const [error, setError] = useState<DepositError | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const { writeContract, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
@@ -30,48 +52,91 @@ export default function BankPage() {
     setLastAction(null);
     setDepositAmount('');
     setWithdrawAmount('');
-    setPermitAmount('');
+    setError(null);
+    setSuccessMessage(null);
   }, [address, isConnected]);
 
-  // Read wallet token balance
-  const { data: walletBalance } = useReadContract({
-    address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
-    abi: MyERC20_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: {
-      enabled: !!address,
-    },
-  });
+  // State for balances and nonce
+  const [walletBalance, setWalletBalance] = useState<bigint>(0n);
+  const [bankBalance, setBankBalance] = useState<bigint>(0n);
+  const [permit2Nonce, setPermit2Nonce] = useState<bigint>(0n);
+  const [isLoadingBalances, setIsLoadingBalances] = useState(false);
 
-  // Read bank deposit balance
-  const { data: bankBalance } = useReadContract({
-    address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
-    abi: TokenBank_ABI,
-    functionName: 'balanceOf',
-    args: address ? [address] : undefined,
-    query: {
-      enabled: !!address,
-    },
-  });
+  // Fetch balances and nonce using custom RPC client
+  const fetchBalances = async () => {
+    if (!address) return;
+    
+    setIsLoadingBalances(true);
+    try {
+      const [tokenBalance, depositBalance, nonce] = await Promise.all([
+        getTokenBalance(address),
+        getBankBalance(address),
+        getPermit2Nonce(address),
+      ]);
+      
+      setWalletBalance(tokenBalance);
+      setBankBalance(depositBalance);
+      setPermit2Nonce(nonce);
+    } catch (error) {
+      console.error('Error fetching balances:', error);
+    } finally {
+      setIsLoadingBalances(false);
+    }
+  };
 
-  // Read nonce for permit
-  const { data: nonce } = useReadContract({
-    address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
-    abi: MyERC20_ABI,
-    functionName: 'nonces',
-    args: address ? [address] : undefined,
-    query: {
-      enabled: !!address,
-    },
-  });
+  // Clear success message after 5 seconds
+  useEffect(() => {
+    if (successMessage) {
+      const timer = setTimeout(() => setSuccessMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [successMessage]);
+
+  // Handle transaction success
+  useEffect(() => {
+    if (isConfirmed && hash) {
+      // Refresh balances after successful transaction
+      fetchBalances();
+      
+      // Set success message based on last action
+      if (lastAction === 'permit2Deposit') {
+        setSuccessMessage(SUCCESS_MESSAGES.PERMIT2_DEPOSIT);
+      } else if (lastAction === 'batchDeposit') {
+        setSuccessMessage(SUCCESS_MESSAGES.BATCH_DEPOSIT);
+      } else if (lastAction === 'deposit') {
+        setSuccessMessage(SUCCESS_MESSAGES.DEPOSIT);
+      } else if (lastAction === 'withdraw') {
+        setSuccessMessage(SUCCESS_MESSAGES.WITHDRAW);
+      }
+      
+      // Clear last action
+      setLastAction(null);
+    }
+  }, [isConfirmed, hash, lastAction]);
+
+  // Fetch balances when address changes
+  useEffect(() => {
+    fetchBalances();
+  }, [address]);
+
+  // Refetch nonce function
+  const refetchNonce = async () => {
+    if (!address) return;
+    try {
+      const nonce = await getPermit2Nonce(address);
+      setPermit2Nonce(nonce);
+    } catch (error) {
+      console.error('Error refetching nonce:', error);
+    }
+  };
 
   // Handle traditional deposit
-  const handleDeposit = async (e: React.FormEvent) => {
+  const handleTraditionalDeposit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!depositAmount) return;
 
     try {
+      setError(null);
       setLastAction('deposit');
       writeContract({
         address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
@@ -81,32 +146,20 @@ export default function BankPage() {
       });
     } catch (error) {
       console.error('Deposit error:', error);
-    }
-  };
-
-  // Handle withdraw
-  const handleWithdraw = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!withdrawAmount) return;
-
-    try {
-      setLastAction('withdraw');
-      writeContract({
-        address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
-        abi: TokenBank_ABI,
-        functionName: 'withdraw',
-        args: [parseUnits(withdrawAmount, 18)],
+      setError({
+        type: 'transaction',
+        message: ERROR_MESSAGES.TRANSACTION_FAILED,
+        details: error instanceof Error ? error.message : 'Unknown error',
       });
-    } catch (error) {
-      console.error('Withdraw error:', error);
     }
   };
 
-  // Approve bank to spend tokens
+  // Handle approve
   const handleApprove = async () => {
     if (!depositAmount) return;
 
     try {
+      setError(null);
       setLastAction('approve');
       writeContract({
         address: CONTRACT_ADDRESSES.MyERC20 as `0x${string}`,
@@ -116,68 +169,221 @@ export default function BankPage() {
       });
     } catch (error) {
       console.error('Approve error:', error);
+      setError({
+        type: 'transaction',
+        message: ERROR_MESSAGES.TRANSACTION_FAILED,
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   };
 
-  // Handle Permit Deposit (EIP-2612)
-  const handlePermitDeposit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!permitAmount || !address) return;
+  // Handle Permit2 single deposit
+  const handlePermit2Deposit = async (amount: string) => {
+    if (!address) return;
+
+    if (isPending) {
+      setError({ type: 'transaction', message: 'Transaction already in progress' });
+      return;
+    }
 
     try {
-      setLastAction('permitDeposit');
-      const amount = parseUnits(permitAmount, 18);
-      const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600); // 1 hour from now
+      setError(null);
+      
+      // Refresh nonce before starting deposit
+      await refetchNonce();
+      
+      const expiration = Permit2Utils.getDefaultExpiration();
+      const nonce = Number(permit2Nonce || BigInt(0));
 
-      // Sign EIP-2612 permit
-      const signature = await signTypedDataAsync({
-        domain: {
-          name: 'MyERC20',
-          version: '1',
-          chainId: chainId,
-          verifyingContract: CONTRACT_ADDRESSES.MyERC20 as Address,
-        },
-        types: {
-          Permit: [
-            { name: 'owner', type: 'address' },
-            { name: 'spender', type: 'address' },
-            { name: 'value', type: 'uint256' },
-            { name: 'nonce', type: 'uint256' },
-            { name: 'deadline', type: 'uint256' },
-          ],
-        },
-        primaryType: 'Permit',
-        message: {
-          owner: address,
-          spender: CONTRACT_ADDRESSES.TokenBank as Address,
-          value: amount,
-          nonce: nonce || BigInt(0),
-          deadline: deadline,
-        },
+      // Set up signature modal
+      setSignatureModalData({
+        title: 'Sign Permit2 Authorization',
+        message: 'Sign this message to authorize the deposit. This signature allows TokenBank to transfer your tokens without requiring a separate approval transaction.',
+        amount,
+        expiration,
+        type: 'permit2',
       });
+      setIsSignatureModalOpen(true);
 
-      // Split signature into v, r, s
-      const r = `0x${signature.slice(2, 66)}` as `0x${string}`;
-      const s = `0x${signature.slice(66, 130)}` as `0x${string}`;
-      const v = parseInt(signature.slice(130, 132), 16);
+    } catch (error) {
+      console.error('Permit2 deposit error:', error);
+      setIsSignatureModalOpen(false);
+      
+      if (error instanceof Error && error.message.includes('User rejected')) {
+        setError({
+          type: 'signature',
+          message: ERROR_MESSAGES.SIGNATURE_REJECTED,
+          suggestion: 'Please try again and approve the signature request',
+        });
+      } else {
+        setError({
+          type: 'signature',
+          message: ERROR_MESSAGES.PERMIT2_ERROR,
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  };
 
-      // Call permitDeposit with signature
+  // Handle batch Permit2 deposit
+  const handleBatchDeposit = async (items: BatchDepositItem[]) => {
+    if (!address || items.length === 0) return;
+
+    if (isPending) {
+      setError({ type: 'transaction', message: 'Transaction already in progress' });
+      return;
+    }
+
+    try {
+      setError(null);
+      
+      // Refresh nonce before starting batch deposit
+      await refetchNonce();
+      
+      const totalAmount = Permit2Utils.calculateBatchTotal(items);
+      const expiration = Permit2Utils.getDefaultExpiration();
+
+      // Set up signature modal
+      setSignatureModalData({
+        title: 'Sign Batch Permit2 Authorization',
+        message: `Sign this message to authorize ${items.length} deposits totaling ${totalAmount} MERC20 tokens. This single signature will authorize all deposits.`,
+        amount: totalAmount,
+        expiration,
+        type: 'batch',
+      });
+      setIsSignatureModalOpen(true);
+
+    } catch (error) {
+      console.error('Batch deposit error:', error);
+      setIsSignatureModalOpen(false);
+      
+      if (error instanceof Error && error.message.includes('User rejected')) {
+        setError({
+          type: 'signature',
+          message: ERROR_MESSAGES.SIGNATURE_REJECTED,
+          suggestion: 'Please try again and approve the signature request',
+        });
+      } else {
+        setError({
+          type: 'signature',
+          message: ERROR_MESSAGES.PERMIT2_ERROR,
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  };
+
+  // Handle withdraw
+  const handleWithdraw = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!withdrawAmount) return;
+
+    try {
+      setError(null);
+      setLastAction('withdraw');
       writeContract({
         address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
         abi: TokenBank_ABI,
-        functionName: 'permitDeposit',
-        args: [address, amount, deadline, v, r, s],
+        functionName: 'withdraw',
+        args: [parseUnits(withdrawAmount, 18)],
       });
     } catch (error) {
-      console.error('Permit deposit error:', error);
-      alert('Permit deposit failed. Please try again.');
+      console.error('Withdraw error:', error);
+      setError({
+        type: 'transaction',
+        message: ERROR_MESSAGES.TRANSACTION_FAILED,
+        details: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   };
+
+  // Handle signature modal
+  const handleSignatureModalSign = async () => {
+    if (!address || !signatureModalData) return;
+
+    try {
+      setError(null);
+      
+      // Refresh nonce before signing
+      await refetchNonce();
+      
+      const expiration = Permit2Utils.getDefaultExpiration();
+      const nonce = Number(permit2Nonce || BigInt(0));
+
+      // Generate signature
+      const typedData = Permit2Utils.getPermit2TypedData(
+        address,
+        CONTRACT_ADDRESSES.TokenBank as Address,
+        signatureModalData.amount || '0',
+        CONTRACT_ADDRESSES.MyERC20 as Address,
+        expiration,
+        Number(nonce),
+        chainId
+      );
+
+      const signature = await signTypedDataAsync(typedData);
+      const { v, r, s } = Permit2Utils.splitSignature(signature);
+
+      // Close modal
+      setIsSignatureModalOpen(false);
+
+      // Execute deposit based on type
+      if (signatureModalData.type === 'batch') {
+        setLastAction('batchDeposit');
+      } else {
+        setLastAction('permit2Deposit');
+      }
+      
+      writeContract({
+        address: CONTRACT_ADDRESSES.TokenBank as `0x${string}`,
+        abi: TokenBank_ABI,
+        functionName: 'depositWithPermit2',
+        args: [address, parseUnits(signatureModalData.amount || '0', 18) as bigint, expiration, nonce, v, r, s],
+      });
+
+    } catch (error) {
+      console.error('Permit2 deposit error:', error);
+      setIsSignatureModalOpen(false);
+      
+      if (error instanceof Error && error.message.includes('User rejected')) {
+        setError({
+          type: 'signature',
+          message: ERROR_MESSAGES.SIGNATURE_REJECTED,
+          suggestion: 'Please try again and approve the signature request',
+        });
+      } else {
+        setError({
+          type: 'signature',
+          message: ERROR_MESSAGES.PERMIT2_ERROR,
+          details: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+  };
+
+  // Show success message when transaction is confirmed
+  useEffect(() => {
+    if (isConfirmed && lastAction) {
+      switch (lastAction) {
+        case 'permit2Deposit':
+          setSuccessMessage(SUCCESS_MESSAGES.DEPOSIT_SUCCESS);
+          break;
+        case 'batchDeposit':
+          setSuccessMessage(SUCCESS_MESSAGES.BATCH_DEPOSIT_SUCCESS);
+          break;
+        case 'deposit':
+        case 'withdraw':
+        case 'approve':
+          setSuccessMessage('Transaction completed successfully');
+          break;
+      }
+    }
+  }, [isConfirmed, lastAction]);
 
   if (!isConnected) {
     return (
       <div className="px-4 py-8">
-        <div className="max-w-3xl mx-auto text-center">
+        <div className="max-w-4xl mx-auto text-center">
           <h1 className="text-3xl font-bold text-gray-900 mb-4">Token Bank</h1>
           <p className="text-lg text-gray-600">Please connect your wallet to continue</p>
         </div>
@@ -187,127 +393,134 @@ export default function BankPage() {
 
   return (
     <div className="px-4 py-8">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">Token Bank</h1>
+
+        {/* Success Message */}
+        {successMessage && (
+          <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <div className="w-5 h-5 bg-green-500 rounded-full flex items-center justify-center">
+                <span className="text-white text-xs">✓</span>
+              </div>
+              <p className="text-green-800 font-medium">{successMessage}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start space-x-3">
+              <div className="w-5 h-5 bg-red-500 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-white text-xs">!</span>
+              </div>
+              <div>
+                <p className="text-red-800 font-medium">{error.message}</p>
+                {error.details && (
+                  <p className="text-red-700 text-sm mt-1">{error.details}</p>
+                )}
+                {error.suggestion && (
+                  <p className="text-red-600 text-sm mt-1">
+                    💡 {error.suggestion}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Balance Display */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
             <p className="text-sm text-gray-600 mb-1">Wallet Balance</p>
             <p className="text-2xl font-bold text-blue-600">
-              {walletBalance ? formatUnits(walletBalance as bigint, 18) : '0'} MERC20
+              {isLoadingBalances ? 'Loading...' : `${formatUnits(walletBalance, 18)} MERC20`}
             </p>
           </div>
           <div className="bg-green-50 border border-green-200 rounded-lg p-6">
             <p className="text-sm text-gray-600 mb-1">Bank Balance</p>
             <p className="text-2xl font-bold text-green-600">
-              {bankBalance ? formatUnits(bankBalance as bigint, 18) : '0'} MERC20
+              {isLoadingBalances ? 'Loading...' : `${formatUnits(bankBalance, 18)} MERC20`}
             </p>
           </div>
         </div>
 
-        {/* Permit Deposit Section (EIP-2612) - NEW! */}
-        <div className="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-300 rounded-lg p-6 mb-6">
-          <div className="flex items-center mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">⚡ Gasless Permit Deposit</h2>
-            <span className="ml-3 px-3 py-1 bg-purple-600 text-white text-xs font-bold rounded-full">
-              EIP-2612
-            </span>
-          </div>
-          <p className="text-sm text-gray-600 mb-4">
-            Sign once and deposit in a single transaction - no separate approval needed!
-          </p>
-          <form onSubmit={handlePermitDeposit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Amount to Deposit
-              </label>
-              <input
-                type="number"
-                value={permitAmount}
-                onChange={(e) => setPermitAmount(e.target.value)}
-                placeholder="0.0"
-                step="0.000000000000000001"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+        {/* Deposit Type Selector */}
+        <div className="mb-8">
+          <DepositTypeSelector
+            value={depositType}
+            onChange={setDepositType}
+            disabled={isPending || isConfirming}
+          />
+        </div>
+
+        {/* Deposit Forms */}
+        <div className="space-y-8">
+          {/* Permit2 Single Deposit */}
+          {depositType === 'permit2' && (
+            <div className="bg-white shadow rounded-lg p-6">
+              <Permit2DepositForm
+                onDeposit={handlePermit2Deposit}
+                maxBalance={walletBalance}
+                isLoading={isPending || isConfirming}
               />
-            </div>
-            <button
-              type="submit"
-              disabled={isPending || isConfirming}
-              className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 px-4 rounded-lg hover:from-purple-700 hover:to-pink-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all font-semibold"
-            >
-              {isPending ? 'Signing...' : isConfirming ? 'Processing...' : '⚡ Sign & Deposit (One Step)'}
-            </button>
-          </form>
-          {isConfirmed && lastAction === 'permitDeposit' && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 font-bold">✅ Permit Deposit Confirmed!</p>
-              {hash && (
-                <p className="text-sm text-green-600 mt-1 break-all">
-                  Hash: {hash}
-                </p>
-              )}
             </div>
           )}
-          <div className="mt-4 p-3 bg-purple-100 rounded-lg">
-            <p className="text-xs text-purple-800">
-              <strong>💡 How it works:</strong> You sign a message to approve the deposit, then the contract 
-              uses this signature to authorize and deposit in a single transaction - saving gas and time!
-            </p>
-          </div>
-        </div>
 
-        {/* Traditional Deposit Section */}
-        <div className="bg-white shadow rounded-lg p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">Traditional Deposit</h2>
-          <form onSubmit={handleDeposit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Amount to Deposit
-              </label>
-              <input
-                type="number"
-                value={depositAmount}
-                onChange={(e) => setDepositAmount(e.target.value)}
-                placeholder="0.0"
-                step="0.000000000000000001"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+          {/* Batch Permit2 Deposit */}
+          {depositType === 'batch' && (
+            <div className="bg-white shadow rounded-lg p-6">
+              <BatchDepositForm
+                onDeposit={handleBatchDeposit}
+                maxBalance={walletBalance}
+                isLoading={isPending || isConfirming}
               />
             </div>
-            <div className="flex space-x-4">
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={isPending || isConfirming}
-                className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-              >
-                1. Approve
-              </button>
-              <button
-                type="submit"
-                disabled={isPending || isConfirming}
-                className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-              >
-                2. Deposit
-              </button>
-            </div>
-          </form>
-          {isConfirmed && (lastAction === 'deposit' || lastAction === 'approve') && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 font-bold">
-                ✅ {lastAction === 'approve' ? 'Approval' : 'Deposit'} Confirmed!
-              </p>
-              {hash && (
-                <p className="text-sm text-green-600 mt-1 break-all">
-                  Hash: {hash}
-                </p>
-              )}
+          )}
+
+          {/* Traditional Deposit */}
+          {depositType === 'normal' && (
+            <div className="bg-white shadow rounded-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Traditional Deposit</h2>
+              <form onSubmit={handleTraditionalDeposit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Amount to Deposit
+                  </label>
+                  <input
+                    type="number"
+                    value={depositAmount}
+                    onChange={(e) => setDepositAmount(e.target.value)}
+                    placeholder="0.0"
+                    step="0.000000000000000001"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+                <div className="flex space-x-4">
+                  <button
+                    type="button"
+                    onClick={handleApprove}
+                    disabled={isPending || isConfirming}
+                    className="flex-1 bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  >
+                    1. Approve
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isPending || isConfirming}
+                    className="flex-1 bg-indigo-600 text-white py-2 px-4 rounded-lg hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                  >
+                    2. Deposit
+                  </button>
+                </div>
+              </form>
             </div>
           )}
         </div>
 
         {/* Withdraw Section */}
-        <div className="bg-white shadow rounded-lg p-6">
+        <div className="mt-8 bg-white shadow rounded-lg p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">Withdraw Tokens</h2>
           <form onSubmit={handleWithdraw} className="space-y-4">
             <div>
@@ -331,46 +544,53 @@ export default function BankPage() {
               {isPending ? 'Confirming...' : isConfirming ? 'Processing...' : 'Withdraw'}
             </button>
           </form>
-          {isConfirmed && lastAction === 'withdraw' && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 font-bold">✅ Withdraw Confirmed!</p>
-              {hash && (
-                <p className="text-sm text-green-600 mt-1 break-all">
-                  Hash: {hash}
-                </p>
-              )}
-            </div>
-          )}
         </div>
 
-        {/* Transaction Status - Now shown at top as floating notification */}
+        {/* Signature Modal */}
+        {signatureModalData && (
+          <SignatureModal
+            isOpen={isSignatureModalOpen}
+            onClose={() => setIsSignatureModalOpen(false)}
+            onSign={handleSignatureModalSign}
+            title={signatureModalData.title}
+            message={signatureModalData.message}
+            amount={signatureModalData.amount}
+            expiration={signatureModalData.expiration}
+            type={signatureModalData.type}
+            isLoading={isPending}
+            error={error?.message}
+          />
+        )}
 
-        {/* Info */}
+        {/* Info Section */}
         <div className="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">Deposit Methods</h3>
-          <div className="space-y-3 text-sm text-gray-600">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Deposit Methods Explained</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm">
             <div>
-              <strong className="text-purple-600">⚡ Permit Deposit (Recommended):</strong>
-              <ul className="list-disc list-inside ml-4 mt-1">
+              <h4 className="font-semibold text-indigo-600 mb-2">Traditional Method</h4>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Step 1: Approve the bank contract (costs gas)</li>
+                <li>Step 2: Deposit tokens (costs gas)</li>
+                <li>Requires two separate transactions</li>
+                <li>Standard ERC20 approval process</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold text-blue-600 mb-2">Permit2 Method</h4>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
                 <li>Sign a message to approve (no gas)</li>
                 <li>Deposit happens in same transaction</li>
-                <li>Uses EIP-2612 standard</li>
+                <li>Uses Permit2 standard</li>
                 <li>More efficient and user-friendly</li>
               </ul>
             </div>
             <div>
-              <strong className="text-indigo-600">Traditional Method:</strong>
-              <ul className="list-disc list-inside ml-4 mt-1">
-                <li>Step 1: Approve the bank contract (costs gas)</li>
-                <li>Step 2: Deposit tokens (costs gas)</li>
-                <li>Requires two separate transactions</li>
-              </ul>
-            </div>
-            <div>
-              <strong className="text-green-600">Withdraw:</strong>
-              <ul className="list-disc list-inside ml-4 mt-1">
-                <li>Withdraw your deposited tokens anytime</li>
-                <li>No approval needed</li>
+              <h4 className="font-semibold text-purple-600 mb-2">Batch Permit2</h4>
+              <ul className="list-disc list-inside space-y-1 text-gray-600">
+                <li>Multiple deposits with one signature</li>
+                <li>Maximum gas efficiency</li>
+                <li>Perfect for bulk operations</li>
+                <li>Single transaction for multiple amounts</li>
               </ul>
             </div>
           </div>

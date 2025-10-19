@@ -8,7 +8,19 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { config, chains } from '../utils/wagmiConfig';
 import '../styles/globals.css';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchInterval: false,
+      refetchIntervalInBackground: false,
+      staleTime: 0,
+      cacheTime: 0,
+    },
+  },
+});
 
 export default function RootLayout({
   children,

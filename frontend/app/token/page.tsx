@@ -71,7 +71,7 @@ export default function TokenPage() {
       return;
     }
 
-    if (amount <= 0n) {
+    if (amount <= BigInt(0)) {
       setTransferError('Amount must be greater than 0.');
       return;
     }
@@ -113,7 +113,7 @@ export default function TokenPage() {
       return;
     }
 
-    if (amount <= 0n) {
+    if (amount <= BigInt(0)) {
       setApproveError('Amount must be greater than 0.');
       return;
     }

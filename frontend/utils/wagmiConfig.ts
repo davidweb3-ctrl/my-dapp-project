@@ -12,9 +12,25 @@ export const config = createConfig({
     injected(), // Only use injected wallet (MetaMask)
   ],
   transports: {
-    [hardhat.id]: http('http://127.0.0.1:8545'),
+    [hardhat.id]: http('http://127.0.0.1:8545', {
+      // Disable all automatic features
+      batch: false,
+      retryCount: 0,
+      timeout: 10000,
+    }),
     [sepolia.id]: http(),
   },
   ssr: true,
+  // Completely disable all automatic features
+  batch: {
+    multicall: false,
+  },
+  // Disable all caching and polling
+  cacheTime: 0,
+  pollingInterval: undefined,
+  // Disable all automatic contract detection
+  contracts: {
+    multicall: false,
+  },
 });
 
