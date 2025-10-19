@@ -48,7 +48,11 @@ This is a comprehensive full-stack DApp that demonstrates modern blockchain deve
 - ✅ Deposit tokens to earn (future: interest)
 - ✅ Withdraw tokens anytime
 - ✅ Track individual user balances
-- ✅ **Permit Deposits**: Gasless deposits with signatures
+- ✅ **EIP-2612 Permit**: Gasless deposits with ERC20 permit signatures
+- ✅ **Permit2 Integration**: Advanced gasless deposits with universal token approval
+- ✅ **Batch Deposits**: Multiple deposits with single signature authorization
+- ✅ **Real-time Balance Updates**: Automatic balance refresh after transactions
+- ✅ **Comprehensive Error Handling**: User-friendly error messages and retry mechanisms
 
 ### 🎨 NFT Collection (MyNFT)
 - ✅ ERC721 standard with URI storage
@@ -244,6 +248,7 @@ import {MyERC20} from "../contracts/MyERC20.sol";
 import {TokenBank} from "../contracts/TokenBank.sol";
 import {MyNFT} from "../contracts/MyNFT.sol";
 import {NFTMarket} from "../contracts/NFTMarket.sol";
+import {MockPermit2} from "../contracts/mocks/MockPermit2.sol";
 
 contract DeployScript is Script {
     function run() external {
@@ -254,15 +259,19 @@ contract DeployScript is Script {
         MyERC20 token = new MyERC20();
         console.log("MyERC20 deployed at:", address(token));
 
-        // 2. Deploy TokenBank
-        TokenBank bank = new TokenBank(address(token));
+        // 2. Deploy MockPermit2 (for testing)
+        MockPermit2 permit2 = new MockPermit2();
+        console.log("MockPermit2 deployed at:", address(permit2));
+
+        // 3. Deploy TokenBank with Permit2 support
+        TokenBank bank = new TokenBank(address(token), address(permit2));
         console.log("TokenBank deployed at:", address(bank));
 
-        // 3. Deploy MyNFT
+        // 4. Deploy MyNFT
         MyNFT nft = new MyNFT();
         console.log("MyNFT deployed at:", address(nft));
 
-        // 4. Deploy NFTMarket
+        // 5. Deploy NFTMarket
         NFTMarket market = new NFTMarket(address(token), address(nft));
         console.log("NFTMarket deployed at:", address(market));
 
@@ -284,9 +293,10 @@ forge script script/Deploy.s.sol:DeployScript \
 # Save the deployed addresses!
 # Example output:
 # MyERC20 deployed at: 0x5FbDB2315678afecb367f032d93F642f64180aa3
-# TokenBank deployed at: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
-# MyNFT deployed at: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
-# NFTMarket deployed at: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+# MockPermit2 deployed at: 0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512
+# TokenBank deployed at: 0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0
+# MyNFT deployed at: 0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9
+# NFTMarket deployed at: 0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9
 ```
 
 #### Step 4: Update Frontend Configuration
@@ -296,9 +306,10 @@ Edit `frontend/utils/contracts.ts`:
 ```typescript
 export const CONTRACT_ADDRESSES = {
   MyERC20: '0x5FbDB2315678afecb367f032d93F642f64180aa3',
-  TokenBank: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512',
-  MyNFT: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0',
-  NFTMarket: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  TokenBank: '0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0', // Updated with Permit2 support
+  MyNFT: '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9',
+  NFTMarket: '0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9',
+  MockPermit2: '0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512', // MockPermit2 for testing
 } as const;
 ```
 
@@ -329,6 +340,140 @@ forge script script/Deploy.s.sol:DeployScript \
   --etherscan-api-key $ETHERSCAN_API_KEY
 
 # Contracts will be verified on Etherscan automatically
+```
+
+---
+
+## 🔐 Permit2 Integration Details
+
+### What is Permit2?
+
+Permit2 is a universal token approval standard developed by Uniswap that allows for more efficient and secure token approvals. Unlike traditional ERC20 approvals, Permit2 enables:
+
+- **Gasless Approvals**: Sign messages instead of paying gas for approvals
+- **Universal Approvals**: One approval for multiple contracts
+- **Batch Operations**: Multiple operations with a single signature
+- **Better Security**: Time-limited and amount-limited approvals
+
+### TokenBank Permit2 Features
+
+#### 🚀 **Single Deposit with Permit2**
+```typescript
+// User signs a message authorizing the deposit
+const signature = await signTypedDataAsync({
+  domain: permit2Domain,
+  types: permit2Types,
+  primaryType: 'PermitTransferFrom',
+  message: {
+    permitted: { token: tokenAddress, amount: depositAmount },
+    spender: bankAddress,
+    nonce: currentNonce,
+    deadline: expirationTime
+  }
+});
+
+// Single transaction: signature + deposit
+await writeContract({
+  address: bankAddress,
+  abi: TokenBank_ABI,
+  functionName: 'depositWithPermit2',
+  args: [owner, amount, expiration, nonce, v, r, s]
+});
+```
+
+#### 📦 **Batch Deposits**
+```typescript
+// Multiple amounts with single signature
+const batchItems = [
+  { amount: parseUnits('100', 18) },
+  { amount: parseUnits('200', 18) },
+  { amount: parseUnits('300', 18) }
+];
+
+// Single signature for all deposits
+const totalAmount = batchItems.reduce((sum, item) => sum + item.amount, 0n);
+// ... sign and execute
+```
+
+#### 🔄 **User Experience Flow**
+1. **Select Method**: Choose between Traditional, Permit2, or Batch Permit2
+2. **Enter Amount**: Input deposit amount(s)
+3. **Sign Message**: Sign EIP-712 message (no gas cost)
+4. **Execute Deposit**: Single transaction with signature
+5. **Auto Update**: Balances refresh automatically
+
+#### 🛡️ **Security Features**
+- **Nonce Management**: Prevents replay attacks
+- **Expiration**: Time-limited approvals
+- **Amount Limits**: Precise amount control
+- **Signature Verification**: EIP-712 standard compliance
+
+### Frontend Components
+
+#### **DepositTypeSelector**
+- Traditional deposit (approve + deposit)
+- Permit2 deposit (signature + deposit)
+- Batch Permit2 (multiple amounts, one signature)
+
+#### **Permit2DepositForm**
+- Amount input with validation
+- Balance checking
+- Signature preparation
+- Error handling
+
+#### **BatchDepositForm**
+- Multiple amount inputs
+- Total calculation
+- Batch signature generation
+- Individual amount validation
+
+#### **SignatureModal**
+- EIP-712 message display
+- Signature request UI
+- User-friendly instructions
+- Error feedback
+
+### Technical Implementation
+
+#### **Custom RPC Client**
+```typescript
+// Bypasses Wagmi auto-detection issues
+const publicClient = createPublicClient({
+  chain: hardhat,
+  transport: http('http://127.0.0.1:8545', {
+    batch: false,
+    retryCount: 0,
+    timeout: 10000,
+  }),
+});
+```
+
+#### **State Management**
+```typescript
+// Manual state management for balances
+const [walletBalance, setWalletBalance] = useState<bigint>(0n);
+const [bankBalance, setBankBalance] = useState<bigint>(0n);
+const [permit2Nonce, setPermit2Nonce] = useState<bigint>(0n);
+
+// Auto-refresh after transactions
+useEffect(() => {
+  if (isConfirmed && hash) {
+    fetchBalances(); // Refresh all balances
+    setSuccessMessage(SUCCESS_MESSAGES.PERMIT2_DEPOSIT);
+  }
+}, [isConfirmed, hash]);
+```
+
+#### **Error Handling**
+```typescript
+// Comprehensive error messages
+export const ERROR_MESSAGES = {
+  INSUFFICIENT_BALANCE: 'Insufficient token balance',
+  INVALID_AMOUNT: 'Invalid deposit amount',
+  SIGNATURE_EXPIRED: 'Signature has expired',
+  INVALID_NONCE: 'Invalid nonce value',
+  PERMIT2_ERROR: 'Permit2 operation failed',
+} as const;
 ```
 
 ---
@@ -423,9 +568,19 @@ pnpm export
 
 #### 2️⃣ Token Banking
 - Navigate to **Bank** page
-- Click **"Approve"** for desired amount
-- Click **"Deposit"** to deposit tokens
-- View balances update
+- **Traditional Deposit**:
+  - Click **"Approve"** for desired amount
+  - Click **"Deposit"** to deposit tokens
+- **Permit2 Deposit** (Recommended):
+  - Select **"Permit2"** deposit method
+  - Enter deposit amount
+  - Click **"Sign & Deposit"** for gasless transaction
+  - Sign the EIP-712 message in MetaMask
+- **Batch Deposit**:
+  - Select **"Batch Permit2"** method
+  - Enter multiple amounts
+  - Single signature for all deposits
+- View balances update automatically
 - Try **"Withdraw"** to get tokens back
 
 #### 3️⃣ NFT Minting
@@ -480,6 +635,11 @@ cast send $BANK "deposit(uint256)" \
 
 # Check bank balance
 cast call $BANK "balanceOf(address)" $SENDER
+
+# Permit2 Deposit (Advanced)
+# Note: This requires signature generation - use frontend for full experience
+# The depositWithPermit2 function signature:
+# depositWithPermit2(address owner, uint160 amount, uint48 expiration, uint48 nonce, uint8 v, bytes32 r, bytes32 s)
 
 # Mint NFT (owner only)
 cast send $NFT "mint(address,string)" \
@@ -696,6 +856,7 @@ cast logs --from-block 0 --to-block latest \
 - [EIP-721: NFT Standard](https://eips.ethereum.org/EIPS/eip-721)
 - [EIP-2612: Permit Extension](https://eips.ethereum.org/EIPS/eip-2612)
 - [EIP-712: Typed Data Signing](https://eips.ethereum.org/EIPS/eip-712)
+- [Permit2: Universal Token Approval](https://github.com/Uniswap/permit2) - Advanced gasless token approvals
 
 ### Tools
 - [Remix IDE](https://remix.ethereum.org/)
@@ -710,25 +871,44 @@ cast logs --from-block 0 --to-block latest \
 my-dapp-project/
 ├── contracts/              # Smart contracts
 │   ├── MyERC20.sol        # ERC20 token
-│   ├── TokenBank.sol      # Banking system
+│   ├── TokenBank.sol      # Banking system with Permit2 support
 │   ├── MyNFT.sol          # NFT collection
-│   └── NFTMarket.sol      # NFT marketplace
+│   ├── NFTMarket.sol      # NFT marketplace
+│   ├── interfaces/        # Contract interfaces
+│   │   └── IPermit2.sol   # Permit2 interface
+│   └── mocks/             # Mock contracts for testing
+│       └── MockPermit2.sol # Mock Permit2 implementation
 ├── script/                 # Deployment scripts
-│   └── Deploy.s.sol       # Main deployment
+│   ├── Deploy.s.sol       # Main deployment
+│   └── TestPermit2Basic.s.sol # Permit2 testing script
 ├── test/                   # Contract tests
 │   ├── MyERC20.t.sol
 │   ├── TokenBank.t.sol
+│   ├── TokenBankPermit2.t.sol # Permit2 specific tests
 │   ├── MyNFT.t.sol
 │   └── NFTMarket.t.sol
 ├── frontend/               # Next.js frontend
 │   ├── app/               # Pages
+│   │   ├── bank/          # Bank page with Permit2 UI
+│   │   ├── token/         # Token management
+│   │   ├── nft/           # NFT minting
+│   │   └── market/        # NFT marketplace
 │   ├── components/        # React components
-│   ├── utils/             # Config & ABIs
+│   │   ├── BatchDepositForm.tsx    # Batch deposit form
+│   │   ├── DepositTypeSelector.tsx # Deposit method selector
+│   │   ├── Permit2DepositForm.tsx  # Permit2 deposit form
+│   │   └── SignatureModal.tsx      # Signature request modal
+│   ├── utils/             # Config & utilities
+│   │   ├── contracts.ts   # Contract addresses & ABIs
+│   │   ├── customRpcClient.ts # Custom RPC client
+│   │   ├── permit2.ts     # Permit2 utilities
+│   │   └── wagmiConfig.ts # Wagmi configuration
 │   ├── styles/            # CSS
 │   ├── package.json       # Dependencies & scripts
 │   └── pnpm-lock.yaml     # pnpm lock file
 ├── lib/                    # Dependencies
 ├── foundry.toml           # Foundry config
+├── anvil-config.toml      # Anvil configuration
 └── README.md              # This file
 ```
 

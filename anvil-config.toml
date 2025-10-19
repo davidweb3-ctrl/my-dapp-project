@@ -1,0 +1,11 @@
+# Anvil configuration to filter unwanted RPC calls
+[anvil]
+# Disable automatic contract detection
+disable_auto_mine = false
+block_time = 0
+
+# Filter out ERC20 function calls on non-ERC20 contracts
+[rpc]
+# This will help reduce unwanted contract detection calls
+batch_size = 1
+
